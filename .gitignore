@@ -1,0 +1,5 @@
+config.ini
+bot/__pycache__/
+plugins/__pycache__/
+plugins/image_generation/__pycache__/
+utils/__pycache__/

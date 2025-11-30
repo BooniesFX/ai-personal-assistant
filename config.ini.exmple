@@ -1,0 +1,46 @@
+# Z-Image Turbo 模型客户端配置文件
+
+# ModelScope API配置
+[modelscope]
+# API基础URL
+base_url = 
+
+# 模型ID
+model_id = Tongyi-MAI/Z-Image-Turbo
+
+# API密钥 (请勿在此处硬编码真实的API密钥)
+# 建议通过环境变量设置: export MODELSCOPE_API_KEY="your_api_key"
+api_key = 
+
+# 权限配置
+[auth]
+# 管理员ID (从 @userinfobot 获取)
+# 建议通过环境变量设置: export ADMIN_ID="your_id"
+admin_id = 
+
+# 默认参数
+[defaults]
+# 默认放大倍数
+default_scale_factor = 2
+
+# 超时设置 (秒)
+timeout = 300
+
+# 图像处理设置
+[image_processing]
+# 支持的输入格式
+supported_formats = .jpg,.jpeg,.png,.bmp,.tiff
+
+# 最大图像尺寸 (像素)
+max_image_size = 4096
+
+# 输出设置
+[output]
+# 默认输出目录
+output_dir = ./outputs
+
+# 输出文件名前缀
+output_prefix = zimage_result_
+
+# 输出格式
+output_format = .jpg
