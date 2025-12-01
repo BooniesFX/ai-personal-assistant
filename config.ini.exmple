@@ -1,5 +1,12 @@
 # Z-Image Turbo 模型客户端配置文件
 
+
+# Telegram Bot Configuration
+[telegram]
+# Bot Token (from @BotFather)
+# 建议通过环境变量设置: export TELEGRAM_BOT_TOKEN="your_token"
+bot_token = 
+
 # ModelScope API配置
 [modelscope]
 # API基础URL
@@ -20,27 +27,13 @@ admin_id =
 
 # 默认参数
 [defaults]
-# 默认放大倍数
-default_scale_factor = 2
 
 # 超时设置 (秒)
 timeout = 300
 
 # 图像处理设置
 [image_processing]
-# 支持的输入格式
-supported_formats = .jpg,.jpeg,.png,.bmp,.tiff
-
-# 最大图像尺寸 (像素)
-max_image_size = 4096
-
-# 输出设置
-[output]
-# 默认输出目录
-output_dir = ./outputs
-
-# 输出文件名前缀
-output_prefix = zimage_result_
-
-# 输出格式
-output_format = .jpg
+# 默认生成参数
+default_width = 1024
+default_height = 1024
+default_steps = 15

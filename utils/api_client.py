@@ -31,7 +31,7 @@ class ModelScopeClient:
     
     def generate_image(self, prompt, model_id='Tongyi-MAI/Z-Image-Turbo', 
                       negative_prompt='', width=1024, height=1024, 
-                      steps=25, seed=42, timeout=120):
+                      steps=15, seed=42, timeout=120):
         """
         Generate image from text prompt
         
@@ -70,12 +70,14 @@ class ModelScopeClient:
             request_data["negative_prompt"] = negative_prompt
             
         # Add optional parameters
-        if width:
-            request_data["width"] = width
-        if height:
-            request_data["height"] = height
+        # OpenAI compatible API expects 'size' as string "WxH"
+        if width and height:
+            request_data["size"] = f"{width}x{height}"
+            
         if steps:
-            request_data["n_steps"] = steps
+            request_data["steps"] = steps
+            request_data["n_steps"] = steps # Send both just in case
+            
         if seed is not None:
             request_data["seed"] = seed
         
@@ -121,6 +123,9 @@ class ModelScopeClient:
                 
                 image_response = requests.get(image_url)
                 image = Image.open(BytesIO(image_response.content))
+                
+                if self.logger:
+                    self.logger.info(f"Received image size: {image.size}")
                 
                 # Convert to BytesIO for returning
                 bio = BytesIO()
