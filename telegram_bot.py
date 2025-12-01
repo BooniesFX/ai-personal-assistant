@@ -14,8 +14,13 @@ def main():
         bot = PersonalAssistantBot()
         bot.run()
     except ValueError as e:
-        print(f"Configuration Error: {e}")
-        print("Please check your config.ini or environment variables")
+        print(f"❌ Configuration Error: {e}")
+        print("\nPlease ensure you have set the required environment variables:")
+        print("  - TELEGRAM_BOT_TOKEN (required)")
+        print("  - MODELSCOPE_API_KEY (required)")
+        print("  - ADMIN_ID (required)")
+        print("\nYou can set them in a .env file or export them directly.")
+        print("See .env.example for reference.")
     except Exception as e:
         print(f"Error starting bot: {e}")
 

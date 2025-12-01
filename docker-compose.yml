@@ -1,0 +1,19 @@
+services:
+  bot:
+    build: .
+    container_name: personal-assistant-bot
+    restart: unless-stopped
+    volumes:
+      # Persist data directory for permissions and other state
+      - ./data:/app/data
+    # Load environment variables from .env file
+    env_file:
+      - .env
+    # Or set them directly (not recommended for secrets):
+    # environment:
+    #   - TELEGRAM_BOT_TOKEN=your_token
+    #   - MODELSCOPE_API_KEY=your_key
+    #   - ADMIN_ID=your_id
+    #   - DEFAULT_WIDTH=1024
+    #   - DEFAULT_HEIGHT=1024
+    #   - DEFAULT_STEPS=30
