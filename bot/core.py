@@ -91,7 +91,7 @@ class PersonalAssistantBot:
             if self.permission_manager.is_allowed_user(user_id):
                 return True
             # Notify user and admin
-            await update.message.reply_text("⛔️ You are not authorized to use this bot.\nRequest sent to admin.")
+            await update.effective_message.reply_text("⛔️ You are not authorized to use this bot.\nRequest sent to admin.")
             if admin_id:
                 try:
                     await context.bot.send_message(
@@ -109,8 +109,8 @@ class PersonalAssistantBot:
             # Only notify once per group session (optional, for now just ignore or reply once)
             # To avoid spam, we might just ignore, or reply only to commands
             # Let's reply to commands only
-            if update.message.text.startswith('/'):
-                 await update.message.reply_text("⛔️ This group is not authorized.\nAdmin must approve this group.")
+            if update.effective_message.text and update.effective_message.text.startswith('/'):
+                 await update.effective_message.reply_text("⛔️ This group is not authorized.\nAdmin must approve this group.")
                  if admin_id:
                     try:
                         await context.bot.send_message(
@@ -130,7 +130,7 @@ class PersonalAssistantBot:
         if not await self.check_permissions(update, context):
             return
 
-        command = update.message.text.split()[0][1:]  # Remove leading /
+        command = update.effective_message.text.split()[0][1:]  # Remove leading /
         
         # Get command map
         command_map = self.plugin_manager.get_all_commands()
@@ -140,16 +140,16 @@ class PersonalAssistantBot:
             try:
                 handled = await plugin.handle_command(update, context)
                 if not handled:
-                    await update.message.reply_text(
+                    await update.effective_message.reply_text(
                         f"Command /{command} could not be processed. Try /help for usage."
                     )
             except Exception as e:
                 self.logger.error(f"Error handling command /{command}: {e}")
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     f"❌ Error processing command: {str(e)}"
                 )
         else:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"Unknown command: /{command}\n"
                 f"Use /help to see available commands."
             )
@@ -171,7 +171,7 @@ class PersonalAssistantBot:
                     self.logger.error(f"Error in plugin {plugin.name}: {e}")
         
         # If no plugin handled it, send default message
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "I'm not sure how to help with that. Try /help to see what I can do!"
         )
     
