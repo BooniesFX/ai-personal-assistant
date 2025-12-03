@@ -183,6 +183,14 @@ class PersonalAssistantBot:
         # Load plugins
         await self.plugin_manager.load_plugins()
         self.logger.info(f"Loaded {len(self.plugin_manager.plugins)} plugins")
+        
+        # Call post_init on plugins that have it
+        for plugin in self.plugin_manager.plugins:
+            if hasattr(plugin, 'post_init'):
+                try:
+                    await plugin.post_init(application)
+                except Exception as e:
+                    self.logger.error(f"Error in {plugin.name} post_init: {e}")
     
     async def post_shutdown(self, application):
         """Post-shutdown hook"""
@@ -203,6 +211,29 @@ class PersonalAssistantBot:
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
+        
+        # Callback queries (for inline buttons)
+        from telegram.ext import CallbackQueryHandler
+        self.application.add_handler(
+            CallbackQueryHandler(self.handle_callback)
+        )
+    
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Route callback queries to plugins"""
+        query = update.callback_query
+        
+        # Try each plugin until one handles it
+        for plugin in self.plugin_manager.plugins:
+            if plugin.enabled and hasattr(plugin, 'handle_callback'):
+                try:
+                    handled = await plugin.handle_callback(update, context)
+                    if handled:
+                        return
+                except Exception as e:
+                    self.logger.error(f"Error in plugin {plugin.name} callback: {e}")
+        
+        # If no plugin handled it, answer the query
+        await query.answer("未知操作")
     
     def run(self):
         """Start the bot"""

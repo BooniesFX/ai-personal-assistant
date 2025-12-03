@@ -58,6 +58,19 @@ def load_config(config_file='config.ini'):
     if os.environ.get('DEFAULT_STEPS'):
         config.set('image_processing', 'default_steps', os.environ.get('DEFAULT_STEPS'))
     
+    # OPS Module
+    if not config.has_section('ops'):
+        config.add_section('ops')
+    
+    if os.environ.get('OPS_LLM_API_KEY'):
+        config.set('ops', 'llm_api_key', os.environ.get('OPS_LLM_API_KEY'))
+    if os.environ.get('OPS_LLM_BASE_URL'):
+        config.set('ops', 'llm_base_url', os.environ.get('OPS_LLM_BASE_URL'))
+    if os.environ.get('OPS_LLM_MODEL'):
+        config.set('ops', 'llm_model', os.environ.get('OPS_LLM_MODEL'))
+    if os.environ.get('OPS_REMINDER_TIME'):
+        config.set('ops', 'reminder_time', os.environ.get('OPS_REMINDER_TIME'))
+    
     return config
 
 
