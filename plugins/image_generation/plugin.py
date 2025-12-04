@@ -70,6 +70,10 @@ class ImageGenerationPlugin(BasePlugin):
             'prompt': ''
         }
         
+        # Normalize dashes (handle Telegram smart punctuation)
+        # Replace em-dash (—) and en-dash (–) with double hyphen (--)
+        text = text.replace('—', '--').replace('–', '--')
+        
         parts = text.split()
         i = 0
         prompt_parts = []

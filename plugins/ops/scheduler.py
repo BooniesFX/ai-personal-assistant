@@ -118,21 +118,28 @@ class ReminderScheduler:
         if not decision:
             return
         
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         # Build reminder message
         message = (
             f"⏰ *每日复盘提醒*\n\n"
             f"昨天你选择了决策：\n"
             f"*{decision_id}*: {decision['text']}\n\n"
-            f"请反馈执行结果：\n"
-            f"✅ 已完成 - 回复效果如何\n"
-            f"❌ 未完成 - 回复遇到什么困难\n\n"
-            f"回复格式：`/ops_feedback {card_id} <已完成/未完成> <结果描述>`"
+            f"请反馈执行结果："
         )
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ 已完成", callback_data=f"ops_fb_done:{card_id}"),
+                InlineKeyboardButton("❌ 未完成", callback_data=f"ops_fb_fail:{card_id}")
+            ]
+        ]
         
         # Send message
         await self.bot.send_message(
             chat_id=user_id,
             text=message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
         

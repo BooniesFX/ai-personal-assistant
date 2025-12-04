@@ -229,31 +229,114 @@ class OPSPlugin(BasePlugin):
         user_id = update.effective_user.id
         message_text = update.effective_message.text
         
-        # Parse: /ops_feedback <card_id> <completed/未完成> <result>
-        parts = message_text.split(maxsplit=3)
+        # Parse arguments
+        args = message_text.split(maxsplit=3)
         
-        if len(parts) < 4:
+        # Case 1: No args - List pending cards
+        if len(args) == 1:
+            pending = self.storage.get_pending_cards(user_id)
+            if not pending:
+                await update.effective_message.reply_text("🎉 没有待反馈的卡片！")
+                return
+            
+            msg = "📋 *待反馈卡片*\n\n"
+            keyboard = []
+            
+            for i, card in enumerate(pending[:5]):
+                decision_id = card.get('selected_decision')
+                decision = next((d for d in card.get('decisions', []) if d['id'] == decision_id), None)
+                decision_text = decision['text'] if decision else "未知决策"
+                
+                msg += f"*{i+1}. {card['date']}*\n"
+                msg += f"问题: {card['input'][:20]}...\n"
+                msg += f"决策: {decision_text[:20]}...\n\n"
+                
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📝 反馈: {card['input'][:10]}...",
+                        callback_data=f"ops_fb_start:{card['id']}"
+                    )
+                ])
+            
             await update.effective_message.reply_text(
-                "📝 请提供反馈信息\n\n"
-                "用法: /ops_feedback <卡片ID> <已完成/未完成> <结果描述>\n"
-                "例如: /ops_feedback abc123 已完成 设置成功，今天专注了2小时"
+                msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
             )
             return
+
+        # Case 2: Natural language args (today, yesterday, last)
+        target_card = None
+        arg1 = args[1].lower()
         
-        _, card_id, status, result = parts
-        completed = status in ['已完成', '完成', 'done', 'yes']
+        if arg1 in ['today', '今天']:
+            date_str = datetime.now().strftime('%Y-%m-%d')
+            # Find card for today
+            # (Simple implementation: scan pending)
+            pending = self.storage.get_pending_cards(user_id)
+            target_card = next((c for c in pending if c['date'] == date_str), None)
+            
+        elif arg1 in ['yesterday', '昨天']:
+            date_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+            pending = self.storage.get_pending_cards(user_id)
+            target_card = next((c for c in pending if c['date'] == date_str), None)
+            
+        elif arg1 in ['last', '最近']:
+            pending = self.storage.get_pending_cards(user_id)
+            if pending:
+                target_card = pending[0]
         
-        # Get card
-        card = self.storage.get_card(card_id)
-        if not card:
-            await update.effective_message.reply_text("❌ 找不到该卡片")
+        # Case 3: Explicit ID or Feedback Content
+        if not target_card and len(args) >= 4:
+            # Try to parse as ID feedback: /ops_feedback <id> <status> <result>
+            card_id, status, result = args[1], args[2], args[3]
+            target_card = self.storage.get_card(card_id)
+            
+            if target_card and target_card.get('user_id') == user_id:
+                completed = status in ['已完成', '完成', 'done', 'yes']
+                self._save_feedback(update, target_card['id'], completed, result)
+                return
+
+        # If we found a target card from natural language, but no content provided
+        if target_card:
+             # Show feedback options for this card
+            decision_id = target_card.get('selected_decision')
+            decision = next((d for d in target_card.get('decisions', []) if d['id'] == decision_id), None)
+            decision_text = decision['text'] if decision else "未知决策"
+            
+            msg = (
+                f"📝 *反馈卡片 ({target_card['date']})*\n\n"
+                f"问题: {target_card['input']}\n"
+                f"决策: {decision_text}\n\n"
+                "请选择执行结果："
+            )
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ 已完成", callback_data=f"ops_fb_done:{target_card['id']}"),
+                    InlineKeyboardButton("❌ 未完成", callback_data=f"ops_fb_fail:{target_card['id']}")
+                ]
+            ]
+            
+            await update.effective_message.reply_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
             return
-        
-        if card.get('user_id') != user_id:
-            await update.effective_message.reply_text("❌ 这不是你的卡片")
-            return
-        
-        # Update feedback
+
+        # Fallback help
+        await update.effective_message.reply_text(
+            "📝 *OPS 反馈帮助*\n\n"
+            "1. `/ops_feedback` - 列出待反馈卡片\n"
+            "2. `/ops_feedback today` - 反馈今天的卡片\n"
+            "3. `/ops_feedback last` - 反馈最近的卡片\n"
+            "4. `/ops_feedback <id> 完成 <结果>` - 直接提交",
+            parse_mode='Markdown'
+        )
+
+    async def _save_feedback(self, update, card_id, completed, result):
+        """Helper to save feedback and reply"""
         self.storage.update_card(card_id, {
             'feedback': {
                 'completed': completed,
@@ -262,14 +345,18 @@ class OPSPlugin(BasePlugin):
             }
         })
         
-        # Send confirmation
         emoji = "✅" if completed else "📝"
-        await update.effective_message.reply_text(
+        text = (
             f"{emoji} 反馈已记录！\n\n"
             f"状态: {'已完成' if completed else '未完成'}\n"
             f"结果: {result}\n\n"
             "继续加油！💪"
         )
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text)
+        else:
+            await update.effective_message.reply_text(text)
     
     def _format_analysis(self, analysis: dict) -> str:
         """Format analysis result for display"""
@@ -384,6 +471,89 @@ class OPSPlugin(BasePlugin):
                 f"✅ 已选择决策 {decision_id}\n\n"
                 "明天此时会提醒你反馈执行结果。\n"
                 "加油！💪"
+            )
+            return True
+        
+        elif data.startswith('ops_fb_start:'):
+            # User clicked "Feedback" from list
+            _, card_id = data.split(':')
+            card = self.storage.get_card(card_id)
+            
+            if not card:
+                await query.edit_message_text("❌ 卡片已不存在")
+                return
+            
+            # Show feedback options
+            decision_id = card.get('selected_decision')
+            decision = next((d for d in card.get('decisions', []) if d['id'] == decision_id), None)
+            decision_text = decision['text'] if decision else "未知决策"
+            
+            msg = (
+                f"📝 *反馈卡片 ({card['date']})*\n\n"
+                f"问题: {card['input']}\n"
+                f"决策: {decision_text}\n\n"
+                "请选择执行结果："
+            )
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ 已完成", callback_data=f"ops_fb_done:{card_id}"),
+                    InlineKeyboardButton("❌ 未完成", callback_data=f"ops_fb_fail:{card_id}")
+                ],
+                [InlineKeyboardButton("🔙 返回列表", callback_data="ops_fb_list")]
+            ]
+            
+            await query.edit_message_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            return True
+            
+        elif data.startswith('ops_fb_done:') or data.startswith('ops_fb_fail:'):
+            # User selected result
+            action, card_id = data.split(':')
+            completed = (action == 'ops_fb_done')
+            
+            # For now, we just save with default message
+            # In future, we could use ForceReply to ask for details
+            result = "已完成" if completed else "未完成"
+            await self._save_feedback(update, card_id, completed, result)
+            return True
+            
+        elif data == 'ops_fb_list':
+            # Back to list
+            # Re-trigger _handle_feedback logic (simplified)
+            user_id = query.from_user.id
+            pending = self.storage.get_pending_cards(user_id)
+            
+            if not pending:
+                await query.edit_message_text("🎉 没有待反馈的卡片！")
+                return True
+            
+            msg = "📋 *待反馈卡片*\n\n"
+            keyboard = []
+            
+            for i, card in enumerate(pending[:5]):
+                decision_id = card.get('selected_decision')
+                decision = next((d for d in card.get('decisions', []) if d['id'] == decision_id), None)
+                decision_text = decision['text'] if decision else "未知决策"
+                
+                msg += f"*{i+1}. {card['date']}*\n"
+                msg += f"问题: {card['input'][:20]}...\n"
+                msg += f"决策: {decision_text[:20]}...\n\n"
+                
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📝 反馈: {card['input'][:10]}...",
+                        callback_data=f"ops_fb_start:{card['id']}"
+                    )
+                ])
+            
+            await query.edit_message_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
             )
             return True
         

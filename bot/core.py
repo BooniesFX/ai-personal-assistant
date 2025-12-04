@@ -66,9 +66,7 @@ class PersonalAssistantBot:
         help_text += "/start - Start the bot\n"
         help_text += "/help - Show this help message"
         
-        await update.message.reply_text(help_text, parse_mode='Markdown')
-    
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        await update.message.reply_text(help_text)
     
     async def check_permissions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """Check if user/chat is allowed"""

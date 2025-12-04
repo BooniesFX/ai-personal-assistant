@@ -121,6 +121,36 @@ class OPSStorage:
         
         return cards
     
+    def get_pending_cards(self, user_id: int) -> List[Dict]:
+        """
+        Get cards waiting for feedback
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of pending cards (newest first)
+        """
+        cards = []
+        for filename in sorted(os.listdir(self.cards_dir), reverse=True):
+            if not filename.endswith('.json'):
+                continue
+            
+            filepath = os.path.join(self.cards_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    card = json.load(f)
+                    
+                    # Check if card belongs to user and has no feedback
+                    if (card.get('user_id') == user_id and 
+                        card.get('selected_decision') and 
+                        not card.get('feedback')):
+                        cards.append(card)
+            except Exception:
+                continue
+        
+        return cards
+    
     def get_week_cards(self, user_id: int, week_offset: int = 0) -> List[Dict]:
         """
         Get cards for a specific week

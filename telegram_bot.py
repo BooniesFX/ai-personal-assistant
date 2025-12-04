@@ -10,6 +10,10 @@ from bot.core import PersonalAssistantBot
 
 def main():
     """Start the bot"""
+    # Load environment variables from .env file
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     try:
         bot = PersonalAssistantBot()
         bot.run()

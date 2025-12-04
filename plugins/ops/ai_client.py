@@ -94,7 +94,7 @@ class OPSAIClient:
         }
         
         response = requests.post(
-            f"{self.base_url}/chat/completions",
+            f"{self.base_url}/v1/chat/completions",
             headers=headers,
             json=data,
             timeout=30
