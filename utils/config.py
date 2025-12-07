@@ -36,27 +36,27 @@ def load_config(config_file='config.ini'):
             config.add_section('auth')
         config.set('auth', 'admin_id', os.environ.get('ADMIN_ID'))
 
-    # ModelScope
-    if not config.has_section('modelscope'):
-        config.add_section('modelscope')
 
-    if os.environ.get('MODELSCOPE_API_KEY'):
-        config.set('modelscope', 'api_key', os.environ.get('MODELSCOPE_API_KEY'))
-    if os.environ.get('MODELSCOPE_BASE_URL'):
-        config.set('modelscope', 'base_url', os.environ.get('MODELSCOPE_BASE_URL'))
-    if os.environ.get('MODELSCOPE_MODEL_ID'):
-        config.set('modelscope', 'model_id', os.environ.get('MODELSCOPE_MODEL_ID'))
+    
 
     # Image Processing Defaults
-    if not config.has_section('image_processing'):
-        config.add_section('image_processing')
+    if not config.has_section('image'):
+        config.add_section('image')
 
+    if os.environ.get('IMAGE_API_KEY'):
+        config.set('image', 'api_key', os.environ.get('IMAGE_API_KEY'))
+    if os.environ.get('IMAGE_BASE_URL'):
+        config.set('image', 'base_url', os.environ.get('IMAGE_BASE_URL'))
+    if os.environ.get('IMAGE_MODEL_ID'):
+        config.set('image', 'model_id', os.environ.get('IMAGE_MODEL_ID'))
+    if os.environ.get('IMAGE_PROVIDER'):
+        config.set('image', 'provider', os.environ.get('IMAGE_PROVIDER'))
     if os.environ.get('DEFAULT_WIDTH'):
-        config.set('image_processing', 'default_width', os.environ.get('DEFAULT_WIDTH'))
+        config.set('image', 'default_width', os.environ.get('DEFAULT_WIDTH'))
     if os.environ.get('DEFAULT_HEIGHT'):
-        config.set('image_processing', 'default_height', os.environ.get('DEFAULT_HEIGHT'))
+        config.set('image', 'default_height', os.environ.get('DEFAULT_HEIGHT'))
     if os.environ.get('DEFAULT_STEPS'):
-        config.set('image_processing', 'default_steps', os.environ.get('DEFAULT_STEPS'))
+        config.set('image', 'default_steps', os.environ.get('DEFAULT_STEPS'))
 
     # OPS Module
     if not config.has_section('ops'):

@@ -20,19 +20,37 @@ class ImageGenerationPlugin(BasePlugin):
         super().__init__(config, logger)
         
         # Get config
-        api_key = get_config_value(config, 'modelscope', 'api_key')
-        base_url = get_config_value(config, 'modelscope', 'base_url', 
-                                    'https://api-inference.modelscope.cn/')
-        model_id = get_config_value(config, 'modelscope', 'model_id',
-                                    'Tongyi-MAI/Z-Image-Turbo')
+        # Get config with safe fallbacks
+        api_key = get_config_value(config, 'image', 'api_key', fallback=None)
+        base_url = get_config_value(config, 'image', 'base_url',
+                                    fallback='https://api.modelscope.cn/api/v1')
+        model_id = get_config_value(config, 'image', 'model_id',
+                                    fallback='Tongyi-MAI/Z-Image-Turbo')
+        provider = get_config_value(config, 'image', 'provider',
+                                    fallback='modelscope')
+        base_url = get_config_value(config, 'image', 'base_url',
+                                    fallback='https://api-inference.modelscope.cn/api/v1')
+        model_id = get_config_value(config, 'image', 'model_id',
+                                    fallback='Tongyi-MAI/Z-Image-Turbo')
         
         # Default settings
-        self.default_width = int(get_config_value(config, 'image_processing', 'default_width', '1024'))
-        self.default_height = int(get_config_value(config, 'image_processing', 'default_height', '1024'))
-        self.default_steps = int(get_config_value(config, 'image_processing', 'default_steps', '25'))
+        # Get default settings with safe conversion
+        self.default_width = int(get_config_value(config, 'image', 'default_width', fallback='1024'))
+        self.default_height = int(get_config_value(config, 'image', 'default_height', fallback='1024'))
+        self.default_steps = int(get_config_value(config, 'image', 'default_steps', fallback='25'))
+        self.default_height = int(get_config_value(config, 'image', 'default_height', fallback='1024'))
+        self.default_steps = int(get_config_value(config, 'image', 'default_steps', fallback='25'))
         
         # Initialize API client
-        self.api_client = ModelScopeClient(api_key, base_url, logger)
+        # Get provider with safe fallback
+        provider = get_config_value(config, 'image', 'provider', fallback='modelscope')
+
+        self.api_client = ModelScopeClient(
+            api_key=api_key,
+            base_url=base_url,
+            logger=logger,
+            provider=provider
+        )
         self.model_id = model_id
     
     @property

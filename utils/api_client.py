@@ -16,7 +16,7 @@ from PIL import Image
 class ModelScopeClient:
     """Client for ModelScope API"""
     
-    def __init__(self, api_key, base_url='https://api-inference.modelscope.cn/', logger=None):
+    def __init__(self, api_key, base_url=None, logger=None, provider='modelscope'):
         """
         Initialize client
         
@@ -25,12 +25,15 @@ class ModelScopeClient:
             base_url: API base URL
             logger: Logger instance (optional)
         """
+        self.provider = provider
+        self.logger = logger
+
+
         self.api_key = api_key
         self.base_url = base_url
-        self.logger = logger
-    
-    def generate_image(self, prompt, model_id='Tongyi-MAI/Z-Image-Turbo', 
-                      negative_prompt='', width=1024, height=1024, 
+
+    def generate_image(self, prompt, model_id='Tongyi-MAI/Z-Image-Turbo',
+                      negative_prompt='', width=1024, height=1024,
                       steps=15, seed=42, timeout=120):
         """
         Generate image from text prompt

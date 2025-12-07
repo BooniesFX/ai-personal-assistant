@@ -8,7 +8,16 @@ case "$1" in
         # Load environment variables from .env if it exists
         if [ -f .env ]; then
             echo "Loading environment variables from .env..."
-            export $(cat .env | grep -v '^#' | xargs)
+            while IFS='=' read -r key value; do
+  # Trim whitespace from key and value
+  key="${key##*( )}"
+  key="${key%%*( )}"
+  value="${value##*( )}"
+  value="${value%%*( )}"
+  if [[ ! $key =~ ^# ]] && [ -n "$key" ]; then
+    export "$key=$value"
+  fi
+done < .env
         fi
         uv run telegram_bot.py
         ;;

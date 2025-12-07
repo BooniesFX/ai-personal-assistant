@@ -27,38 +27,23 @@ class ClaudeClient:
         Args:
             config: Configuration object (optional)
         """
-        # Get API key from environment or config
-        api_key = os.getenv('ANTHROPIC_API_KEY') or (
-            get_config_value(config, 'claude', 'api_key') if config else None
-        )
-
+  
         llm_provider = get_llm_provider(config)
 
-        # Get API key from LLM_API_KEY (unified) or deprecated ANTHROPIC_API_KEY
-        # Unified API key handling
-        api_key = os.getenv('LLM_API_KEY') or (
-            get_config_value(config, 'llm', 'api_key') if config else None
-        )
-
+        # Get API key from LLM_API_KEY (unified)
+        api_key = get_config_value(config, 'llm', 'api_key', fallback=os.getenv('LLM_API_KEY'))
 
         if not api_key:
             raise ValueError(f"{llm_provider.upper()} API key not configured!")
-        elif llm_provider == 'cas':
-            if not api_key:
-                raise ValueError("CAS API key not configured!")
-        else:
-            raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
         # Initialize async client
         self.client = AsyncAnthropic(api_key=api_key)
 
         # Get default model from environment or config
-        self.default_model = os.getenv('CLAUDE_MODEL') or (
-            get_config_value(config, 'claude', 'model') if config else 'claude-3-5-sonnet-20241022'
-        )
+        self.default_model = get_config_value(config, 'llm', 'model', fallback='claude-3-5-sonnet-20241022')
 
         # Get default max tokens
-        self.default_max_tokens = int(os.getenv('CLAUDE_MAX_TOKENS', '1024'))
+        self.default_max_tokens = int(get_config_value(config, 'llm', 'max_tokens', fallback='4096'))
 
     async def create_message(
         self,
@@ -154,36 +139,14 @@ class ClaudeClient:
             if tools:
                 params['tools'] = tools
 
-                llm_provider = get_llm_provider(config)
-            if llm_provider == 'anthropic':
+            try:
                 async with self.client.messages.stream(**params) as stream:
                     async for chunk in stream.text_stream:
                         yield chunk
-            elif llm_provider == 'cas':
-                async for chunk in self.client.stream_message(
-                    messages=messages,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system,
-                    tools=tools,
-                    **kwargs
-                ):
-                    # Parse CAS streaming chunks
-                    try:
-                        data = json.loads(chunk)
-                        if data.get('type') == 'content_block_delta':
-                            yield data['delta']['text_delta']['text']
-                    except:
-                        pass
-            else:
-                raise ValueError(f"Unsupported LLM provider: {llm_provider}")
-                async for chunk in stream.text_stream:
-                    yield chunk
 
-        except Exception as e:
-            logger.error(f"Claude API streaming error: {e}")
-            raise
+            except Exception as e:
+                logger.error(f"Claude API streaming error: {e}")
+                raise
 
     async def create_tool_message(
         self,
