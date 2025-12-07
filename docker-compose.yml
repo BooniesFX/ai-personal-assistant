@@ -12,6 +12,7 @@ services:
     # Or set them directly (not recommended for secrets):
     # environment:
     #   - TELEGRAM_BOT_TOKEN=your_token
+    #   - ANTHROPIC_API_KEY=your_claude_key   # For Claude Agent mode
     #   - MODELSCOPE_API_KEY=your_key
     #   - ADMIN_ID=your_id
     #   - DEFAULT_WIDTH=1024

@@ -29,5 +29,9 @@ COPY . .
 # Create volume directory for data
 RUN mkdir -p data
 
-# Run the bot using uv run (which activates the venv automatically)
-CMD ["uv", "run", "telegram_bot.py"]
+# Make the entrypoint script executable
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Set entrypoint to our script
+ENTRYPOINT ["/app/entrypoint.sh"]

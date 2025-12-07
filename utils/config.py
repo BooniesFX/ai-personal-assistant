@@ -13,16 +13,16 @@ import os
 def load_config(config_file='config.ini'):
     """
     Load configuration from file and environment
-    
+
     Args:
         config_file: Path to config file
-        
+
     Returns:
         ConfigParser instance
     """
     config = configparser.ConfigParser()
     config.read(config_file)
-    
+
     # Override with environment variables if present
     # Telegram
     if os.environ.get('TELEGRAM_BOT_TOKEN'):
@@ -39,7 +39,7 @@ def load_config(config_file='config.ini'):
     # ModelScope
     if not config.has_section('modelscope'):
         config.add_section('modelscope')
-        
+
     if os.environ.get('MODELSCOPE_API_KEY'):
         config.set('modelscope', 'api_key', os.environ.get('MODELSCOPE_API_KEY'))
     if os.environ.get('MODELSCOPE_BASE_URL'):
@@ -57,11 +57,11 @@ def load_config(config_file='config.ini'):
         config.set('image_processing', 'default_height', os.environ.get('DEFAULT_HEIGHT'))
     if os.environ.get('DEFAULT_STEPS'):
         config.set('image_processing', 'default_steps', os.environ.get('DEFAULT_STEPS'))
-    
+
     # OPS Module
     if not config.has_section('ops'):
         config.add_section('ops')
-    
+
     if os.environ.get('OPS_LLM_API_KEY'):
         config.set('ops', 'llm_api_key', os.environ.get('OPS_LLM_API_KEY'))
     if os.environ.get('OPS_LLM_BASE_URL'):
@@ -70,7 +70,20 @@ def load_config(config_file='config.ini'):
         config.set('ops', 'llm_model', os.environ.get('OPS_LLM_MODEL'))
     if os.environ.get('OPS_REMINDER_TIME'):
         config.set('ops', 'reminder_time', os.environ.get('OPS_REMINDER_TIME'))
-    
+
+    # Claude Agent
+    if not config.has_section('claude'):
+        config.add_section('claude')
+
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        config.set('claude', 'api_key', os.environ.get('ANTHROPIC_API_KEY'))
+    if os.environ.get('CLAUDE_MODEL'):
+        config.set('claude', 'model', os.environ.get('CLAUDE_MODEL'))
+    if os.environ.get('CLAUDE_MAX_TOKENS'):
+        config.set('claude', 'max_tokens', os.environ.get('CLAUDE_MAX_TOKENS'))
+    if os.environ.get('SESSION_TIMEOUT_HOURS'):
+        config.set('claude', 'session_timeout_hours', os.environ.get('SESSION_TIMEOUT_HOURS'))
+
     return config
 
 
