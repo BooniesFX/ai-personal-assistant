@@ -8,6 +8,7 @@ New entry point for Claude-powered Telegram bot with natural language understand
 
 import asyncio
 import logging
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 
 from agents.core.bot import ClaudeCodeAgentBot
@@ -36,8 +37,14 @@ class HybridClaudeBot:
         if not self.bot_token:
             raise ValueError("Telegram Bot Token not configured!")
 
-        # Create application
-        self.application = Application.builder().token(self.bot_token).build()
+        # Create application with proper lifecycle hooks
+        self.application = (
+            Application.builder()
+            .token(self.bot_token)
+            .post_init(self.post_init)
+            .post_shutdown(self.post_shutdown)
+            .build()
+        )
 
     async def start_command(self, update, context):
         """Handle /start command."""
@@ -116,6 +123,10 @@ class HybridClaudeBot:
         """Post-initialization hook."""
         # Initialize traditional bot components
         await self.traditional_bot.post_init(application)
+        
+        # Load agent tools (async)
+        await self.claude_agent.load_tools()
+        
         logger.info("Hybrid bot initialized")
 
     async def post_shutdown(self, application):
@@ -133,12 +144,8 @@ class HybridClaudeBot:
         # Setup handlers
         self.setup_handlers()
 
-        # Add initialization and shutdown hooks
-        self.application.post_init = self.post_init
-        self.application.post_shutdown = self.post_shutdown
-
-        # Run bot
-        self.application.run_polling(allowed_updates=Application.ALL_TYPES)
+        # Run bot (hooks already set via builder)
+        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 def main():

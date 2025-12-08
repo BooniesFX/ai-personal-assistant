@@ -38,13 +38,12 @@ class ClaudeCodeAgentBot:
         self.session_manager = SessionManager(self.memory_store)
         self.tool_registry = ToolRegistry()
 
-        # Load existing tools/plugins
-        self._load_tools()
+        # Tools will be loaded asynchronously via load_tools()
 
-        logger.info("ClaudeCodeAgentBot initialized")
+        logger.info("ClaudeCodeAgentBot initialized (tools will be loaded async)")
 
-    def _load_tools(self):
-        """Load existing tools from plugins."""
+    async def load_tools(self):
+        """Load existing tools from plugins (async)."""
         try:
             # Import plugin manager to adapt existing plugins as tools
             from bot.plugin_manager import PluginManager
@@ -54,19 +53,33 @@ class ClaudeCodeAgentBot:
             plugin_config = load_config() if not self.config else self.config
             plugin_manager = PluginManager(plugin_config, logger)
 
+            # Actually load the plugins (this is async!)
+            await plugin_manager.load_plugins()
+
+            logger.info(f"PluginManager loaded {len(plugin_manager.plugins)} plugins")
+
             # Adapt plugins to tools
             for plugin in plugin_manager.plugins:
+                logger.info(f"Checking plugin: {plugin.name}, enabled={plugin.enabled}, has_tool_def={hasattr(plugin, 'get_tool_definition')}")
                 if plugin.enabled and hasattr(plugin, 'get_tool_definition'):
                     try:
                         tool_def = plugin.get_tool_definition()
                         if tool_def:
                             self.tool_registry.register_tool(tool_def, plugin.handle_tool_call)
                             logger.info(f"Registered tool: {tool_def.get('name', 'unknown')}")
+                        else:
+                            logger.warning(f"Plugin {plugin.name} returned None tool definition")
                     except Exception as e:
                         logger.error(f"Error registering tool from plugin {plugin.name}: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+            logger.info(f"Total registered tools: {len(self.tool_registry.list_tools())}")
 
         except Exception as e:
             logger.error(f"Error loading tools: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def process_message(
         self,
@@ -181,7 +194,7 @@ class ClaudeCodeAgentBot:
         context: ContextTypes.DEFAULT_TYPE
     ):
         """
-        Stream response to user.
+        Process message with Claude, handling tool calls.
 
         Args:
             update: Telegram update
@@ -203,11 +216,14 @@ class ClaudeCodeAgentBot:
 
             # Get available tools
             tools = self.tool_registry.get_tool_definitions()
+            
+            logger.info(f"Available tools: {[t.get('name') for t in tools]}")
 
             # System prompt
             system_prompt = (
                 "You are a helpful AI assistant integrated with Telegram. "
-                "You can help users with various tasks using available tools. "
+                "You have access to powerful tools. When the user asks you to draw, paint, "
+                "create an image, or generate any visual content, you MUST use the generate_image tool. "
                 "Respond naturally and concisely. When using tools, explain what you're doing. "
                 "If you don't understand a request, ask for clarification."
             )
@@ -215,41 +231,91 @@ class ClaudeCodeAgentBot:
             # Send initial thinking message
             thinking_msg = await update.effective_message.reply_text("💭 Thinking...")
 
-            response_text = ""
-
             if tools:
-                # Use tool calling with streaming
-                async for chunk in self.claude_client.stream_message(
+                # Use tool calling (non-streaming for proper tool handling)
+                result = await self.claude_client.create_tool_message(
                     messages=context_messages,
                     tools=tools,
                     system=system_prompt
-                ):
-                    response_text += chunk
+                )
 
-                    # Update message periodically to show progress
-                    if len(response_text) % 100 == 0:
-                        try:
-                            await thinking_msg.edit_text(f"💭 {response_text[:200]}...")
-                        except:
-                            pass
+                response = result.get('response')
+                tool_calls = result.get('tool_calls', [])
+
+                logger.info(f"Tool calls detected: {tool_calls}")
+
+                # Handle tool calls
+                if tool_calls:
+                    tool_results = []
+                    for tool_call in tool_calls:
+                        tool_name = tool_call['name']
+                        tool_input = tool_call['input']
+                        tool_id = tool_call['id']
+
+                        await thinking_msg.edit_text(f"🔧 Using tool: {tool_name}...")
+
+                        # Execute tool
+                        tool_result = await self.tool_registry.execute_tool(
+                            tool_name, tool_input, update, context
+                        )
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": tool_result
+                        })
+
+                    # Build messages for follow-up
+                    # Add assistant response with tool_use blocks
+                    assistant_content = []
+                    for content_block in response.content:
+                        if content_block.type == 'text':
+                            assistant_content.append({"type": "text", "text": content_block.text})
+                        elif content_block.type == 'tool_use':
+                            assistant_content.append({
+                                "type": "tool_use",
+                                "id": content_block.id,
+                                "name": content_block.name,
+                                "input": content_block.input
+                            })
+                    
+                    follow_up_messages = context_messages + [
+                        {"role": "assistant", "content": assistant_content},
+                        {"role": "user", "content": tool_results}
+                    ]
+
+                    # Get final response after tool execution
+                    final_response = await self.claude_client.create_message(
+                        messages=follow_up_messages,
+                        system=system_prompt
+                    )
+
+                    response_text = ""
+                    for content_block in final_response.content:
+                        if hasattr(content_block, 'text'):
+                            response_text += content_block.text
+
+                else:
+                    # No tool calls, extract text response
+                    response_text = ""
+                    for content_block in response.content:
+                        if hasattr(content_block, 'text'):
+                            response_text += content_block.text
             else:
-                # Direct streaming response
-                async for chunk in self.claude_client.stream_message(
+                # No tools available, direct response
+                response = await self.claude_client.create_message(
                     messages=context_messages,
                     system=system_prompt
-                ):
-                    response_text += chunk
-
-                    # Update message periodically to show progress
-                    if len(response_text) % 100 == 0:
-                        try:
-                            await thinking_msg.edit_text(f"💭 {response_text[:200]}...")
-                        except:
-                            pass
+                )
+                response_text = ""
+                for content_block in response.content:
+                    if hasattr(content_block, 'text'):
+                        response_text += content_block.text
 
             # Delete thinking message and send final response
             await thinking_msg.delete()
-            await update.effective_message.reply_text(response_text)
+            if response_text.strip():
+                await update.effective_message.reply_text(response_text)
 
             # Update session with assistant response
             await self.session_manager.update_session_context(
@@ -259,6 +325,8 @@ class ClaudeCodeAgentBot:
 
         except Exception as e:
             logger.error(f"Error streaming message: {e}")
+            import traceback
+            traceback.print_exc()
             await update.effective_message.reply_text(f"Sorry, I encountered an error: {str(e)}")
 
     async def get_help_text(self) -> str:

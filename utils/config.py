@@ -84,6 +84,28 @@ def load_config(config_file='config.ini'):
     if os.environ.get('SESSION_TIMEOUT_HOURS'):
         config.set('claude', 'session_timeout_hours', os.environ.get('SESSION_TIMEOUT_HOURS'))
 
+    # LLM Module (Unified)
+    if not config.has_section('llm'):
+        config.add_section('llm')
+
+    # Load LLM settings (supporting both legacy ANTHROPIC_ and new LLM_ prefixes)
+    if os.environ.get('LLM_PROVIDER'):
+        config.set('llm', 'provider', os.environ.get('LLM_PROVIDER'))
+    
+    # API Key
+    if os.environ.get('LLM_API_KEY'):
+        config.set('llm', 'api_key', os.environ.get('LLM_API_KEY'))
+    elif os.environ.get('ANTHROPIC_API_KEY'):
+        config.set('llm', 'api_key', os.environ.get('ANTHROPIC_API_KEY'))
+        
+    # Base URL & Model
+    if os.environ.get('LLM_API_BASE_URL'):
+        config.set('llm', 'base_url', os.environ.get('LLM_API_BASE_URL'))
+    if os.environ.get('LLM_MODEL'):
+        config.set('llm', 'model', os.environ.get('LLM_MODEL'))
+    if os.environ.get('LLM_MAX_TOKENS'):
+        config.set('llm', 'max_tokens', os.environ.get('LLM_MAX_TOKENS'))
+
     return config
 
 
@@ -101,3 +123,21 @@ def get_config_value(config, section, key, fallback=''):
         Config value or fallback
     """
     return config.get(section, key, fallback=fallback)
+
+
+def get_llm_provider(config):
+    """
+    Get the configured LLM provider.
+    
+    Args:
+        config: ConfigParser instance or None
+        
+    Returns:
+        str: Provider name (default: anthropic)
+    """
+    if config is None:
+        from .config import load_config
+        config = load_config()
+        
+    return get_config_value(config, 'llm', 'provider', fallback='anthropic')
+

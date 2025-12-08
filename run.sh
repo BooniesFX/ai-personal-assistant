@@ -19,7 +19,7 @@ case "$1" in
   fi
 done < .env
         fi
-        uv run telegram_bot.py
+        uv run telegram_claude_agent.py
         ;;
     "install")
         echo "Installing dependencies with uv..."

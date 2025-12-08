@@ -11,6 +11,7 @@ from utils.api_client import ModelScopeClient
 from utils.config import get_config_value
 from telegram import Update
 from telegram.ext import ContextTypes
+from typing import Dict, Any, List
 
 
 class ImageGenerationPlugin(BasePlugin):
@@ -236,3 +237,50 @@ class ImageGenerationPlugin(BasePlugin):
                 f"❌ Error generating image:\n{str(e)}\n\n"
                 f"Please try again or contact the administrator."
             )
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """Get tool definition for Claude agent"""
+        return {
+            "name": "generate_image",
+            "description": "Generate an image based on a text prompt. Use this when the user asks to draw, paint, or create an image.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Detailed description of the image to generate"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Width of the image (default 1024)",
+                        "enum": [512, 768, 1024, 1280]
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Height of the image (default 1024)",
+                        "enum": [512, 768, 1024, 1280]
+                    },
+                    "steps": {
+                        "type": "integer",
+                        "description": "Number of inference steps (default 30, max 50)"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+
+    async def handle_tool_call(self, args: Dict[str, Any], update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+        """Handle execution of the tool"""
+        # Map tool args to plugin args
+        plugin_args = {
+            'width': args.get('width', self.default_width),
+            'height': args.get('height', self.default_height),
+            'steps': args.get('steps', self.default_steps),
+            'prompt': args['prompt']
+        }
+        
+        # Trigger generation
+        await self._generate_and_send(update, plugin_args)
+        
+        return f"Image generated successfully for prompt: {plugin_args['prompt']}"
+
