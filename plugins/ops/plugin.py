@@ -447,6 +447,82 @@ class OPSPlugin(BasePlugin):
         
         return msg
     
+    def get_tool_definition(self) -> dict:
+        """Get tool definition for Claude agent"""
+        return {
+            "name": "ops_analyze",
+            "description": "OPS问题分析工具 - 创建结构化的问题分析卡片和决策建议。仅在用户明确要求使用OPS系统、记录问题、或需要决策建议时调用。关键词：'用OPS'、'记录问题'、'帮我分析'、'给我建议'。普通抱怨或描述问题时不要调用，应该先共情回应。",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "problem": {
+                        "type": "string",
+                        "description": "用户描述的问题或困扰"
+                    }
+                },
+                "required": ["problem"]
+            }
+        }
+
+    async def handle_tool_call(self, args: dict, update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+        """Handle tool call from Claude agent"""
+        problem = args.get('problem', '')
+        if not problem:
+            return "请描述你遇到的问题"
+        
+        user_id = update.effective_user.id
+        
+        try:
+            # Analyze problem with AI
+            analysis = self.ai_client.analyze_problem(problem)
+            
+            # Create daily card
+            card = {
+                'user_id': user_id,
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'input': problem,
+                'category': analysis['category'],
+                'essence': analysis['essence'],
+                'gaps': analysis['gaps'],
+                'decisions': analysis['decisions']
+            }
+            
+            card_id = self.storage.save_card(card)
+            
+            # Build response message with interactive buttons
+            response = self._format_analysis(analysis)
+            
+            # Build decision keyboard
+            keyboard = []
+            for decision in analysis['decisions']:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{decision['id']}: {decision['text'][:30]}...",
+                        callback_data=f"ops_select:{card_id}:{decision['id']}"
+                    )
+                ])
+            keyboard.append([
+                InlineKeyboardButton("❌ 暂不执行", callback_data=f"ops_skip:{card_id}")
+            ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send interactive card to user
+            await update.effective_message.reply_text(
+                response,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
+            # Return simple confirmation for logging
+            return f"已为用户分析问题并创建卡片 {card_id}"
+            
+        except Exception as e:
+            self.logger.error(f"Error in OPS tool call: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"分析失败: {str(e)}"
+
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
         query = update.callback_query

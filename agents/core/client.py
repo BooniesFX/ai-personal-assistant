@@ -158,9 +158,24 @@ class ClaudeClient:
                     }
                 })
             params['tools'] = openai_tools
+            params['tool_choice'] = 'auto'  # Let model decide when to use tools
+            logger.info(f"Tools being sent to API: {[t['function']['name'] for t in openai_tools]}")
+            logger.debug(f"Full tools payload: {openai_tools}")
 
         try:
+            logger.info(f"Sending request to OpenAI-compatible API with model: {params['model']}")
+            logger.debug(f"Messages: {openai_messages[-1] if openai_messages else 'empty'}")  # Log last message
             response = await self.client.chat.completions.create(**params)
+            
+            # Debug log the response
+            if response.choices:
+                choice = response.choices[0]
+                logger.info(f"Response finish_reason: {choice.finish_reason}")
+                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                    logger.info(f"Tool calls in response: {[tc.function.name for tc in choice.message.tool_calls]}")
+                else:
+                    logger.info("No tool_calls in response")
+                    
             # Wrap response in a compatible format
             return OpenAIResponseWrapper(response)
         except Exception as e:

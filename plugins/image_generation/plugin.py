@@ -271,11 +271,15 @@ class ImageGenerationPlugin(BasePlugin):
 
     async def handle_tool_call(self, args: Dict[str, Any], update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
         """Handle execution of the tool"""
-        # Map tool args to plugin args
+        # Map tool args to plugin args (convert string to int if needed)
+        width = args.get('width', self.default_width)
+        height = args.get('height', self.default_height)
+        steps = args.get('steps', self.default_steps)
+        
         plugin_args = {
-            'width': args.get('width', self.default_width),
-            'height': args.get('height', self.default_height),
-            'steps': args.get('steps', self.default_steps),
+            'width': int(width) if width else self.default_width,
+            'height': int(height) if height else self.default_height,
+            'steps': int(steps) if steps else self.default_steps,
             'prompt': args['prompt']
         }
         

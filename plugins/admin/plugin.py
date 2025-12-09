@@ -141,3 +141,87 @@ class AdminPlugin(BasePlugin):
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
+
+    def get_tool_definition(self) -> dict:
+        """Get tool definition for Claude agent"""
+        return {
+            "name": "admin_manage",
+            "description": "管理机器人的用户和群组权限。可以允许或阻止用户/群组使用机器人，或查看当前授权列表。仅管理员可用。",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "要执行的操作",
+                        "enum": ["allow", "block", "list", "get_id"]
+                    },
+                    "target_id": {
+                        "type": "integer",
+                        "description": "目标用户或群组ID（allow/block操作需要）"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+
+    async def handle_tool_call(self, args: dict, update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+        """Handle tool call from Claude agent"""
+        action = args.get('action')
+        target_id = args.get('target_id')
+        user_id = update.effective_user.id
+        
+        # get_id is public
+        if action == 'get_id':
+            chat_id = update.effective_chat.id
+            msg = f"👤 User ID: {user_id}"
+            if chat_id != user_id:
+                msg += f"\n📢 Chat ID: {chat_id}"
+            return msg
+        
+        # Other actions require admin
+        if not self.is_admin(user_id):
+            return "❌ 此操作仅管理员可用"
+        
+        permission_manager = context.bot_data.get('permission_manager')
+        if not permission_manager:
+            return "❌ Permission Manager 未加载"
+        
+        if action == 'list':
+            stats = permission_manager.get_stats()
+            msg = f"📊 统计\n用户: {stats['users']}\n群组: {stats['groups']}\n\n"
+            msg += "用户列表:\n" + "\n".join(map(str, permission_manager.permissions['users']))
+            msg += "\n\n群组列表:\n" + "\n".join(map(str, permission_manager.permissions['groups']))
+            return msg
+        
+        if action in ['allow', 'block'] and target_id is None:
+            return f"❌ {action} 操作需要提供 target_id"
+        
+        if action == 'allow':
+            if target_id < 0:
+                if permission_manager.add_group(target_id):
+                    try:
+                        await context.bot.send_message(target_id, "✅ 此群组已被管理员批准!")
+                    except:
+                        pass
+                    return f"✅ 群组 {target_id} 已允许"
+                return f"⚠️ 群组 {target_id} 已在允许列表中"
+            else:
+                if permission_manager.add_user(target_id):
+                    try:
+                        await context.bot.send_message(target_id, "✅ 您已被管理员批准!")
+                    except:
+                        pass
+                    return f"✅ 用户 {target_id} 已允许"
+                return f"⚠️ 用户 {target_id} 已在允许列表中"
+        
+        elif action == 'block':
+            if target_id < 0:
+                if permission_manager.remove_group(target_id):
+                    return f"🚫 群组 {target_id} 已阻止"
+                return f"⚠️ 群组 {target_id} 不在列表中"
+            else:
+                if permission_manager.remove_user(target_id):
+                    return f"🚫 用户 {target_id} 已阻止"
+                return f"⚠️ 用户 {target_id} 不在列表中"
+        
+        return f"❌ 未知操作: {action}"

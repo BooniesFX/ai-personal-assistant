@@ -1,5 +1,5 @@
 # Config files with secrets
-config.ini
+openspec/
 .env
 
 # Python
