@@ -9,19 +9,23 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
     exit 1
 fi
 
-# Check for Claude API key if using agent mode
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo "⚠️ WARNING: ANTHROPIC_API_KEY is not set"
+# Check for LLM API key (supports multiple providers)
+if [ -z "$LLM_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "⚠️ WARNING: LLM_API_KEY or ANTHROPIC_API_KEY is not set"
     echo "Will fall back to traditional command-based bot mode"
     AGENT_MODE=false
 else
-    echo "✅ Claude API key configured"
+    if [ -n "$LLM_API_KEY" ]; then
+        echo "✅ LLM API key configured (Provider: ${LLM_PROVIDER:-cas})"
+    else
+        echo "✅ Anthropic API key configured"
+    fi
     AGENT_MODE=true
 fi
 
-# Check for ModelScope API key (required for image generation)
-if [ -z "$MODELSCOPE_API_KEY" ]; then
-    echo "⚠️ WARNING: MODELSCOPE_API_KEY is not set"
+# Check for Image API key (required for image generation)
+if [ -z "$IMAGE_API_KEY" ] && [ -z "$MODELSCOPE_API_KEY" ]; then
+    echo "⚠️ WARNING: IMAGE_API_KEY is not set"
     echo "Image generation plugin will not work"
 fi
 
@@ -41,14 +45,27 @@ echo ""
 echo "=== Environment Summary ==="
 echo "Bot Token: ${TELEGRAM_BOT_TOKEN:0:10}... (hidden)"
 if [ "$AGENT_MODE" = true ]; then
-    echo "Claude API: ${ANTHROPIC_API_KEY:0:10}... (hidden)"
+    if [ -n "$LLM_API_KEY" ]; then
+        echo "LLM API: ${LLM_API_KEY:0:10}... (hidden)"
+        echo "LLM Provider: ${LLM_PROVIDER:-cas}"
+        echo "LLM Model: ${LLM_MODEL:-deepseek-ai/DeepSeek-V3.2}"
+    else
+        echo "Claude API: ${ANTHROPIC_API_KEY:0:10}... (hidden)"
+    fi
     echo "Agent Mode: ✅ ENABLED"
 else
-    echo "Claude API: ❌ NOT CONFIGURED"
+    echo "LLM API: ❌ NOT CONFIGURED"
     echo "Agent Mode: ❌ DISABLED (traditional commands only)"
 fi
-echo "ModelScope: ${MODELSCOPE_API_KEY:0:10}... (hidden)"
-echo "Admin ID: $ADMIN_ID"
+if [ -n "$IMAGE_API_KEY" ]; then
+    echo "Image API: ${IMAGE_API_KEY:0:10}... (hidden)"
+    echo "Image Provider: ${IMAGE_PROVIDER:-modelscope}"
+elif [ -n "$MODELSCOPE_API_KEY" ]; then
+    echo "Image API: ${MODELSCOPE_API_KEY:0:10}... (hidden)"
+else
+    echo "Image API: ❌ NOT CONFIGURED"
+fi
+echo "Admin ID: ${ADMIN_ID:-not set}"
 echo "==========================="
 echo ""
 
