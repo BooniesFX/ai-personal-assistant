@@ -71,9 +71,9 @@ echo ""
 
 # Choose which bot to run based on agent mode
 if [ "$AGENT_MODE" = true ]; then
-    echo "🚀 Starting Hybrid Claude Agent Bot..."
-    echo "Features: Natural language + Traditional commands"
-    exec uv run telegram_claude_agent.py
+    echo "🚀 Starting Unified Agent (Web + Telegram)..."
+    echo "Features: Natural language + Traditional commands + Web UI"
+    exec uv run python run_unified.py
 else
     echo "🚀 Starting Traditional Command Bot..."
     echo "Features: Traditional commands only"

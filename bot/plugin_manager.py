@@ -118,8 +118,14 @@ class PluginManager:
         command_map = {}
         for plugin in self.plugins:
             if plugin.enabled:
-                for cmd in plugin.commands:
-                    command_map[cmd['command']] = plugin
+                cmds = plugin.commands
+                # Handle both dict format {'cmd': 'desc'} and list format [{'command': 'cmd'}]
+                if isinstance(cmds, dict):
+                    for cmd in cmds.keys():
+                        command_map[cmd] = plugin
+                elif isinstance(cmds, list):
+                    for cmd in cmds:
+                        command_map[cmd['command']] = plugin
         return command_map
     
     def get_help_text(self) -> str:

@@ -270,7 +270,7 @@ class ImageGenerationPlugin(BasePlugin):
         }
 
     async def handle_tool_call(self, args: Dict[str, Any], update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-        """Handle execution of the tool"""
+        """Handle execution of the tool - works for both Telegram and Web"""
         # Map tool args to plugin args (convert string to int if needed)
         width = args.get('width', self.default_width)
         height = args.get('height', self.default_height)
@@ -283,8 +283,55 @@ class ImageGenerationPlugin(BasePlugin):
             'prompt': args['prompt']
         }
         
-        # Trigger generation
-        await self._generate_and_send(update, plugin_args)
-        
-        return f"Image generated successfully for prompt: {plugin_args['prompt']}"
+        # Check if we have a Telegram update (web context passes None)
+        if update is not None and hasattr(update, 'message') and update.message:
+            # Telegram context - use existing flow with message sending
+            await self._generate_and_send(update, plugin_args)
+            return f"Image generated successfully for prompt: {plugin_args['prompt']}"
+        else:
+            # Web or other context - just generate and return result
+            try:
+                self.logger.info(f"Generating image for web context: {plugin_args['prompt']}")
+                
+                # Generate image
+                image_bio = self.api_client.generate_image(
+                    prompt=plugin_args['prompt'],
+                    model_id=self.model_id,
+                    width=plugin_args['width'],
+                    height=plugin_args['height'],
+                    steps=plugin_args['steps']
+                )
+                
+                # For web, we can't directly send the image, so return success message
+                # The actual image would need to be handled differently (e.g., saved to file or returned as base64)
+                if image_bio:
+                    # Save to a temp file and return path
+                    import os
+                    import uuid
+                    from datetime import datetime
+                    
+                    # Create images directory
+                    images_dir = "data/generated_images"
+                    os.makedirs(images_dir, exist_ok=True)
+                    
+                    # Generate unique filename
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"image_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+                    filepath = os.path.join(images_dir, filename)
+                    
+                    # Save image
+                    with open(filepath, 'wb') as f:
+                        f.write(image_bio.read())
+                    
+                    # Return web-accessible URL
+                    image_url = f"/images/{filename}"
+                    self.logger.info(f"Image saved to {filepath}, accessible at {image_url}")
+                    return f"✨ Image generated!\n![{plugin_args['prompt']}]({image_url})"
+                else:
+                    return "Image generation returned no data"
+                    
+            except Exception as e:
+                self.logger.error(f"Error generating image for web: {e}")
+                return f"Error generating image: {str(e)}"
+
 

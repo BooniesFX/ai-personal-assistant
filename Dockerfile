@@ -33,5 +33,8 @@ RUN mkdir -p data
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# Expose web server port
+EXPOSE 8080
+
 # Set entrypoint to our script
 ENTRYPOINT ["/app/entrypoint.sh"]

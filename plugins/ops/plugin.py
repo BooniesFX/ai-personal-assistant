@@ -470,6 +470,16 @@ class OPSPlugin(BasePlugin):
         if not problem:
             return "请描述你遇到的问题"
         
+        # Web platform: update is None, return text analysis only
+        if update is None:
+            try:
+                analysis = self.ai_client.analyze_problem(problem)
+                return self._format_analysis_text(analysis)
+            except Exception as e:
+                self.logger.error(f"Error in OPS tool call (web): {e}")
+                return f"分析失败: {str(e)}"
+        
+        # Telegram platform: full interactive card
         user_id = update.effective_user.id
         
         try:
@@ -522,6 +532,24 @@ class OPSPlugin(BasePlugin):
             import traceback
             traceback.print_exc()
             return f"分析失败: {str(e)}"
+    
+    def _format_analysis_text(self, analysis: dict) -> str:
+        """Format analysis for text-only response (Web)"""
+        msg = "🎯 **问题分析**\n\n"
+        msg += f"📂 **分类**: {', '.join(analysis['category'])}\n\n"
+        msg += f"💡 **本质**: {analysis['essence']}\n\n"
+        
+        msg += "🔍 **差距**:\n"
+        for i, gap in enumerate(analysis['gaps'], 1):
+            msg += f"{i}. {gap}\n"
+        msg += "\n"
+        
+        msg += "✅ **建议决策**:\n\n"
+        for decision in analysis['decisions']:
+            msg += f"**{decision['id']}**: {decision['text']}\n"
+            msg += f"   ⏱ {decision['effort']}\n\n"
+        
+        return msg
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
