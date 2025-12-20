@@ -167,11 +167,22 @@ class WebSocketHandler:
         # Use bound identity (Email) if logged in, else fallback to web_ID
         user_id = client.bound_identity or client.telegram_id or f"web_{client_id}"
         
-        # Notify thinking state
-        await self._send(client.websocket, {
-            "type": MessageType.SESSION_STATE_CHANGED,
-            "state": "thinking"
-        })
+        # Define status callback for real-time visibility
+        async def status_callback(status: str):
+            """Push status update to client."""
+            # Simple mapping of status text to state
+            state = "thinking"
+            if "tool" in status.lower() or "executing" in status.lower():
+                state = "tool_use"
+            
+            await self._send(client.websocket, {
+                "type": MessageType.SESSION_STATE_CHANGED,
+                "state": state,
+                "status_text": status  # Optional: send full text if client supports it
+            })
+
+            # Also send as ephemeral system/tool message if needed, 
+            # but for now let's just stick to state change
         
         try:
             # Create unified message
@@ -182,26 +193,11 @@ class WebSocketHandler:
             )
             
             # Process via AgentCore
-            response = await self.agent_core.process_message(message)
-            
-            # Notify tool usage if any
-            if response.tool_calls:
-                await self._send(client.websocket, {
-                    "type": MessageType.SESSION_STATE_CHANGED,
-                    "state": "tool_use",
-                    "tools": [tc.get('name') for tc in response.tool_calls]
-                })
-                
-                # Send tool results
-                for tr in response.tool_results:
-                    await self._send(client.websocket, {
-                        "type": MessageType.MESSAGE_ADDED,
-                        "message": {
-                            "role": "tool",
-                            "name": tr.get('tool_name'),
-                            "content": tr.get('result', tr.get('error', ''))
-                        }
-                    })
+            response = await self.agent_core.process_message(
+                message,
+                platform_context=client,
+                status_callback=status_callback
+            )
             
             # Send assistant response
             await self._send(client.websocket, {

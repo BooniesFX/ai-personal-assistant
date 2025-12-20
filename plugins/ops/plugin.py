@@ -34,30 +34,34 @@ class OPSPlugin(BasePlugin):
     
     @property
     def name(self) -> str:
-        return "ops"
+        return "silk_pouch"
     
     @property
     def description(self) -> str:
-        return "🎯 OPS - 每日能力训练系统"
+        return "📜 智慧锦囊 (Wisdom Silk Pouch) - 个人决策与反思系统"
     
     @property
     def commands(self):
         return [
             {
+                'command': 'jn',
+                'description': '开启一个智慧锦囊 (分析问题并存档)'
+            },
+            {
+                'command': 'jn_feedback',
+                'description': '反馈锦囊妙计的执行结果'
+            },
+            {
+                'command': 'jn_review',
+                'description': '查看本周智慧复盘'
+            },
+            {
+                'command': 'jn_stats',
+                'description': '查看锦囊库统计'
+            },
+            {
                 'command': 'ops',
-                'description': '记录问题并获得AI分析和决策建议'
-            },
-            {
-                'command': 'ops_feedback',
-                'description': '反馈决策执行结果'
-            },
-            {
-                'command': 'ops_review',
-                'description': '查看本周复盘'
-            },
-            {
-                'command': 'ops_stats',
-                'description': '查看个人进度统计'
+                'description': '旧命令 (同 /jn)'
             }
         ]
     
@@ -92,16 +96,17 @@ class OPSPlugin(BasePlugin):
         """Handle commands"""
         message_text = update.effective_message.text
         
-        if message_text.startswith('/ops_feedback'):
+        # New commands
+        if message_text.startswith('/jn_feedback') or message_text.startswith('/ops_feedback'):
             await self._handle_feedback(update, context)
             return True
-        elif message_text.startswith('/ops_review'):
+        elif message_text.startswith('/jn_review') or message_text.startswith('/ops_review'):
             await self._handle_review(update, context)
             return True
-        elif message_text.startswith('/ops_stats'):
+        elif message_text.startswith('/jn_stats') or message_text.startswith('/ops_stats'):
             await self._handle_stats(update, context)
             return True
-        elif message_text.startswith('/ops'):
+        elif message_text.startswith('/jn') or message_text.startswith('/ops'):
             await self._handle_ops(update, context)
             return True
         
@@ -360,26 +365,27 @@ class OPSPlugin(BasePlugin):
     
     def _format_analysis(self, analysis: dict) -> str:
         """Format analysis result for display"""
-        msg = "🎯 *问题分析*\n\n"
-        
-        # Category
-        msg += f"📂 *分类*: {', '.join(analysis['category'])}\n\n"
+        msg = "📜 *智慧锦囊 (Wisdom Silk Pouch)*\n\n"
         
         # Essence
-        msg += f"💡 *本质*: {analysis['essence']}\n\n"
+        msg += f"💡 *核心精义 (Essence)*: {analysis['essence']}\n\n"
+        
+        # Category
+        msg += f"📂 *分类领域*: {', '.join(analysis['category'])}\n\n"
         
         # Gaps
-        msg += "🔍 *差距*:\n"
+        msg += "🔍 *现存差距 (Gaps)*:\n"
         for i, gap in enumerate(analysis['gaps'], 1):
             msg += f"{i}. {gap}\n"
         msg += "\n"
         
         # Decisions
-        msg += "✅ *建议决策* (选择一个执行):\n\n"
+        msg += "✅ *锦囊妙计 (Decisions)*:\n"
         for decision in analysis['decisions']:
             msg += f"*{decision['id']}*: {decision['text']}\n"
             msg += f"   ⏱ {decision['effort']}\n\n"
         
+        msg += "_已存入你的锦囊库，明天我会提醒你复盘这个锦囊的执行。_"
         return msg
     
     def _generate_weekly_review(self, cards: list) -> str:
@@ -447,44 +453,63 @@ class OPSPlugin(BasePlugin):
         
         return msg
     
-    def get_tool_definition(self) -> dict:
-        """Get tool definition for Claude agent"""
-        return {
-            "name": "ops_analyze",
-            "description": "OPS问题分析工具 - 创建结构化的问题分析卡片和决策建议。仅在用户明确要求使用OPS系统、记录问题、或需要决策建议时调用。关键词：'用OPS'、'记录问题'、'帮我分析'、'给我建议'。普通抱怨或描述问题时不要调用，应该先共情回应。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "problem": {
-                        "type": "string",
-                        "description": "用户描述的问题或困扰"
-                    }
-                },
-                "required": ["problem"]
+    def get_tool_definitions(self) -> List[dict]:
+        """Get tool definitions for Claude agent"""
+        return [
+            {
+                "name": "silk_pouch_analysis",
+                "description": "Create a 'Wisdom Silk Pouch' (智慧锦囊) to analyze a problem. Use this when the user faces a dilemma, frustration, or complex choice. It deconstructs the situation into Essence, Gaps, and Decisions and archives it for future reference and follow-up.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "problem": {
+                            "type": "string",
+                            "description": "The description of the problem or dilemma."
+                        }
+                    },
+                    "required": ["problem"]
+                }
+            },
+            {
+                "name": "silk_pouch_search",
+                "description": "Search through the user's library of past 'Silk Pouches' (智慧锦囊) to find past advice or similar situations. Use this to provide consistency and remind the user of past wisdom.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Keyword or topic to search for in past silk pouches."
+                        }
+                    },
+                    "required": ["query"]
+                }
             }
-        }
+        ]
 
     async def handle_tool_call(self, args: dict, update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-        """Handle tool call from Claude agent"""
+        """Handle tool call (supports silk_pouch_analysis and silk_pouch_search)"""
+        # Distinguish by keys in args
+        if 'query' in args:
+            return await self._handle_silk_pouch_search(args, update, context)
+        
         problem = args.get('problem', '')
         if not problem:
             return "请描述你遇到的问题"
         
-        # Web platform: update is None, return text analysis only
-        if update is None:
-            try:
-                analysis = self.ai_client.analyze_problem(problem)
-                return self._format_analysis_text(analysis)
-            except Exception as e:
-                self.logger.error(f"Error in OPS tool call (web): {e}")
-                return f"分析失败: {str(e)}"
-        
-        # Telegram platform: full interactive card
-        user_id = update.effective_user.id
+        # Determine user_id (handle both user_id as int or email as string)
+        user_id_raw = update.effective_user.id if update else (context.get('user_id') if context else None)
+        # For simplicity in this logic, we use the user_id from update if available
+        # In AgentCore, we might need more robust identity handling.
         
         try:
             # Analyze problem with AI
             analysis = self.ai_client.analyze_problem(problem)
+            
+            # If Web (no telegram update), just return formatted text
+            if update is None:
+                return self._format_analysis_text(analysis)
+            
+            user_id = update.effective_user.id
             
             # Create daily card
             card = {
@@ -507,31 +532,52 @@ class OPSPlugin(BasePlugin):
             for decision in analysis['decisions']:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"{decision['id']}: {decision['text'][:30]}...",
+                        f"📜 {decision['id']}: {decision['text'][:30]}...",
                         callback_data=f"ops_select:{card_id}:{decision['id']}"
                     )
                 ])
             keyboard.append([
-                InlineKeyboardButton("❌ 暂不执行", callback_data=f"ops_skip:{card_id}")
+                InlineKeyboardButton("❌ 暂不归档", callback_data=f"ops_skip:{card_id}")
             ])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Send interactive card to user
+            # Send interactive Silk Pouch to user
             await update.effective_message.reply_text(
                 response,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
             
-            # Return simple confirmation for logging
-            return f"已为用户分析问题并创建卡片 {card_id}"
+            return f"智慧锦囊已生成并归档 (ID: {card_id})"
             
         except Exception as e:
-            self.logger.error(f"Error in OPS tool call: {e}")
-            import traceback
-            traceback.print_exc()
-            return f"分析失败: {str(e)}"
+            self.logger.error(f"Error in Silk Pouch tool call: {e}")
+            return f"锦囊生成失败: {str(e)}"
+
+    async def _handle_silk_pouch_search(self, args: dict, update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+        """Search for past silk pouches"""
+        query = args.get('query', '')
+        if not query:
+            return "请输入搜索关键词"
+            
+        user_id = update.effective_user.id if update else (context.get('user_id') if context else None)
+        if not user_id:
+            return "未找到用户信息，无法搜索锦囊。"
+            
+        results = self.storage.search_cards(user_id, query)
+        
+        if not results:
+            return f"在锦囊库中没有找到关于 '{query}' 的过往记录。"
+            
+        msg = f"🔍 **在锦囊库中为您找到以下相关智慧：**\n\n"
+        for i, card in enumerate(results, 1):
+            msg += f"{i}. **{card['date']}** - *{card['essence']}*\n"
+            msg += f"   > 问题：{card['input'][:60]}...\n"
+            msg += f"   > 建议决断：{', '.join([d['text'] for d in card.get('decisions', [])[:1]])}\n\n"
+            
+        msg += "您可以参考这些过往经验来指导当下的行动。"
+        return msg
     
     def _format_analysis_text(self, analysis: dict) -> str:
         """Format analysis for text-only response (Web)"""

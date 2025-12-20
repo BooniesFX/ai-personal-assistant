@@ -135,8 +135,18 @@ class ClaudeClient:
                     else:
                         text_parts.append(str(item))
                 content = '\n'.join(text_parts)
+            
+            openai_msg = {"role": role, "content": content}
+            
+            # Include tool_calls for assistant messages (OpenAI format)
+            if msg.get('tool_calls'):
+                openai_msg['tool_calls'] = msg['tool_calls']
+            
+            # Include tool_call_id for tool response messages
+            if msg.get('tool_call_id'):
+                openai_msg['tool_call_id'] = msg['tool_call_id']
 
-            openai_messages.append({"role": role, "content": content})
+            openai_messages.append(openai_msg)
 
         params = {
             'model': model or self.default_model,

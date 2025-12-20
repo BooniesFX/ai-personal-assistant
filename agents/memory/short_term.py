@@ -22,13 +22,17 @@ DEFAULT_WINDOW_SIZE = 5
 @dataclass
 class ConversationTurn:
     """A single conversation turn."""
-    role: str  # 'user' or 'assistant'
+    role: str  # 'user', 'assistant', 'tool'
     content: str
     timestamp: Optional[str] = None
+    tool_calls: Optional[List[Dict]] = None
+    tool_call_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self):
-        return asdict(self)
+        d = asdict(self)
+        # Remove None values to keep it clean
+        return {k: v for k, v in d.items() if v is not None}
     
     @classmethod
     def from_dict(cls, data):
@@ -108,8 +112,8 @@ class ShortTermMemory:
                     'turn_count_since_summary': self._summary_counters.get(key, 0)
                 }
                 
-            with open(self.save_path, 'w') as f:
-                json.dump(data, f, indent=2)
+            with open(self.save_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error saving short-term memory: {e}")
     
@@ -119,6 +123,8 @@ class ShortTermMemory:
         session_id: str, 
         role: str, 
         content: str,
+        tool_calls: Optional[List[Dict]] = None,
+        tool_call_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ):
         """
@@ -127,8 +133,10 @@ class ShortTermMemory:
         Args:
             user_id: User identifier
             session_id: Session identifier
-            role: 'user' or 'assistant'
+            role: 'user', 'assistant', or 'tool'
             content: Message content
+            tool_calls: List of tool calls (for assistant)
+            tool_call_id: Tool call ID (for tool response)
             metadata: Optional metadata
         """
         session_key = self._get_session_key(user_id, session_id)
@@ -137,6 +145,8 @@ class ShortTermMemory:
         turn = ConversationTurn(
             role=role,
             content=content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
             metadata=metadata or {}
         )
         
@@ -177,7 +187,15 @@ class ShortTermMemory:
         if count is not None:
             turns = turns[-count:]
         
-        return [{"role": t.role, "content": t.content} for t in turns]
+        result = []
+        for t in turns:
+            msg = {"role": t.role, "content": t.content}
+            if t.tool_calls:
+                msg["tool_calls"] = t.tool_calls
+            if t.tool_call_id:
+                msg["tool_call_id"] = t.tool_call_id
+            result.append(msg)
+        return result
     
     def get_full_context(
         self, 

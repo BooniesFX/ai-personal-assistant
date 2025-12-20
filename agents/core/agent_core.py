@@ -8,7 +8,10 @@ Central agent that handles all platforms through transport adapters.
 
 import asyncio
 import logging
-from typing import Dict, Optional, Any, List, Callable
+import os
+import json
+from datetime import datetime
+from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -83,6 +86,8 @@ class AgentCore:
         from bot.plugin_manager import PluginManager
         from utils.config import load_config
         from agents.identity.manager import UserIdentityManager
+        from agents.tools.mcp_client import MCPClientManager, MCPServerConfig
+        from agents.skills.manager import SkillManager
         
         # Load config if not provided
         if self.config is None:
@@ -92,7 +97,35 @@ class AgentCore:
         self.memory_store = JSONMemoryStore("data/claude_memory.json")
         self.session_manager = SessionManager(self.memory_store)
         self.llm_client = ClaudeClient(self.config)
+        self.mcp_client_manager = MCPClientManager()
+        self.skill_manager = SkillManager()
+        
+        # Identity Manager
+        self.identity_manager = UserIdentityManager()
+        
+        # Tools
         self.tool_registry = ToolRegistry()
+        self.tool_registry.register_skill_manager(self.skill_manager)
+        
+        # Register Tavily MCP (Search)
+        # TODO: Move to config file
+        # Check if Tavily API Key is present in env or config, otherwise use default for demo if needed, 
+        # but here we hardcode as per previous step for now.
+        
+        # Connect to Tavily MCP via mcp-remote bridge
+        # This allows connecting to the remote SSE server via stdio
+        tavily_url = os.getenv("TAVILY_MCP_URL", "")
+        if tavily_url:
+            await self.mcp_client_manager.connect_server("tavily", MCPServerConfig(
+                name="tavily",
+                transport="stdio",
+                command="npx",
+                args=["-y", "mcp-remote", tavily_url]
+            ))
+            logger.info("Tavily MCP configured via mcp-remote bridge")
+        
+        await self.tool_registry.register_mcp_source(self.mcp_client_manager)
+        
         self.identity_manager = UserIdentityManager()
         
         # Initialize dual memory system
@@ -139,7 +172,8 @@ class AgentCore:
     async def process_message(
         self, 
         message: Message,
-        platform_context: Any = None
+        platform_context: Any = None,
+        status_callback: Callable[[str], Any] = None
     ) -> Response:
         """
         Process a message from any platform.
@@ -195,8 +229,47 @@ class AgentCore:
         logger.info(f"Processing message from {message.platform.value}:{user_id}")
         
         try:
-            if tools:
-                # With tool support
+            # Initialize loop variables
+            max_turns = 15
+            current_turn = 0
+            final_response = None
+            
+            # Helper to append to local context and persistent memory
+            async def add_context(role, content, tool_calls=None, tool_call_id=None, save_to_memory=False):
+                if save_to_memory:
+                    self.short_term_memory.add_turn(
+                        user_id, session_id, role, content, 
+                        tool_calls=tool_calls, tool_call_id=tool_call_id
+                    )
+                
+                # Update context for next iteration
+                context.append({
+                    "role": role, 
+                    "content": content,
+                    "tool_calls": tool_calls,
+                    "tool_call_id": tool_call_id
+                })
+                # Filter None values
+                if context[-1]["tool_calls"] is None: del context[-1]["tool_calls"]
+                if context[-1]["tool_call_id"] is None: del context[-1]["tool_call_id"]
+
+            while current_turn < max_turns:
+                current_turn += 1
+                
+                # Get tools (await async fetching)
+                tools = await self.tool_registry.get_tool_definitions()
+                
+                if status_callback and current_turn == 1:
+                     await status_callback("💭 Thinking...")
+                elif status_callback:
+                     await status_callback("🤔 Analyzing tool results...")
+                
+                # Debug OpenAI Context
+                try:
+                    logger.debug(f"Context sent to LLM (Turn {current_turn}): {json.dumps(context, default=str)}")
+                except:
+                    pass
+
                 result = await self.llm_client.create_tool_message(
                     messages=context,
                     tools=tools,
@@ -205,54 +278,89 @@ class AgentCore:
                 
                 response_obj = result.get('response')
                 tool_calls = result.get('tool_calls', [])
-                tool_results = []
+                response_text = self._extract_text(response_obj)
+                if not response_text:
+                    response_text = None
                 
-                # Execute tool calls
+                # Format tool calls if present
+                formatted_tool_calls = None
                 if tool_calls:
+                    formatted_tool_calls = []
                     for tc in tool_calls:
-                        try:
-                            tool_result = await self.tool_registry.execute_tool(
-                                tc['name'],
-                                tc['input'],
-                                platform_context,
-                                None
-                            )
-                            tool_results.append({
-                                'tool_name': tc['name'],
-                                'result': str(tool_result)
-                            })
-                        except Exception as e:
-                            logger.error(f"Tool execution error: {e}")
-                            tool_results.append({
-                                'tool_name': tc['name'],
-                                'error': str(e)
-                            })
+                        formatted_tool_calls.append({
+                            "id": tc['id'],
+                            "type": "function",
+                            "function": {
+                                "name": tc['name'],
+                                "arguments": json.dumps(tc['input'])
+                            }
+                        })
                 
-                # Extract text response
-                response_text = self._extract_text(response_obj)
+                # If no tool calls, this is the final final response - SAVE IT
+                is_final = not tool_calls
+                await add_context("assistant", response_text, tool_calls=formatted_tool_calls, save_to_memory=is_final)
                 
-            else:
-                # Without tools
-                response_obj = await self.llm_client.create_message(
-                    messages=context,
-                    system=system_prompt
+                if is_final:
+                    final_response = Response(
+                        content=response_text,
+                        tool_calls=[],
+                        tool_results=[]
+                    )
+                    break
+                    
+                # Execute tools
+                logger.info(f"Executing {len(tool_calls)} tools in turn {current_turn}")
+                
+                if status_callback:
+                    # Notify user about tools being executed
+                    # Distinguish between technical tools and business skills
+                    tool_names = []
+                    has_skill = False
+                    for tc in tool_calls:
+                        name = tc['name']
+                        if self.tool_registry.is_skill(name):
+                             tool_names.append(f"Skill: {name}")
+                             has_skill = True
+                        else:
+                             tool_names.append(name)
+                    
+                    display_names = ", ".join(tool_names)
+                    emoji = "🧠" if has_skill else "🔧"
+                    type_label = "skill" if (has_skill and len(tool_calls) == 1) else "tool"
+                    
+                    if len(tool_calls) == 1:
+                        await status_callback(f"{emoji} Executing {type_label}: {display_names}...")
+                    else:
+                        await status_callback(f"{emoji} Executing {len(tool_calls)} actions: {display_names}...")
+                
+                for tc in tool_calls:
+                    tool_name = tc['name']
+                    tool_id = tc['id']
+                    tool_input = tc['input']
+                    
+                    try:
+                        tool_result = await self.tool_registry.execute_tool(
+                            tool_name,
+                            tool_input,
+                            platform_context,
+                            None
+                        )
+                        result_content = str(tool_result)
+                    except Exception as e:
+                        logger.error(f"Tool execution error: {e}")
+                        result_content = f"Error: {str(e)}"
+                        
+                    # Save Tool Result to LOCAL context only
+                    await add_context("tool", result_content, tool_call_id=tool_id, save_to_memory=False)
+            
+            if not final_response:
+                final_response = Response(
+                    content=response_text if response_text else "Task completed (max turns reached).",
+                    tool_calls=[], # We don't return intermediate calls in final response structure for now
+                    tool_results=[]
                 )
-                response_text = self._extract_text(response_obj)
-                tool_calls = []
-                tool_results = []
             
-            # Add assistant response to short-term memory
-            self.short_term_memory.add_turn(
-                user_id, session_id,
-                role="assistant",
-                content=response_text
-            )
-            
-            return Response(
-                content=response_text,
-                tool_calls=tool_calls,
-                tool_results=tool_results
-            )
+            return final_response
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")

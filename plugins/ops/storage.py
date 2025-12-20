@@ -120,6 +120,49 @@ class OPSStorage:
                         break
         
         return cards
+        
+    def search_cards(self, user_id: int, query: str, limit: int = 5) -> List[Dict]:
+        """
+        Search cards by query string.
+        
+        Args:
+            user_id: User ID
+            query: Search query
+            limit: Max results
+            
+        Returns:
+            List of matching cards
+        """
+        query = query.lower()
+        results = []
+        
+        # Walk through all files
+        for filename in sorted(os.listdir(self.cards_dir), reverse=True):
+            if not filename.endswith('.json'):
+                continue
+                
+            filepath = os.path.join(self.cards_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    card = json.load(f)
+                    
+                    if card.get('user_id') != user_id:
+                        continue
+                        
+                    # Search in input, essence, category
+                    match = False
+                    if query in (card.get('input', '') or '').lower(): match = True
+                    elif query in (card.get('essence', '') or '').lower(): match = True
+                    elif any(query in c.lower() for c in card.get('category', [])): match = True
+                    
+                    if match:
+                        results.append(card)
+                        if len(results) >= limit:
+                            break
+            except:
+                continue
+                
+        return results
     
     def get_pending_cards(self, user_id: int) -> List[Dict]:
         """

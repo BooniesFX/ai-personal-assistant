@@ -79,15 +79,6 @@ class ToolRegistry:
             del self.tool_handlers[tool_name]
         logger.info(f"Unregistered tool: {tool_name}")
 
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """
-        Get all tool definitions.
-
-        Returns:
-            List of tool definitions
-        """
-        return list(self.tools.values())
-
     def get_tool_definition(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
         Get a specific tool definition.
@@ -100,42 +91,90 @@ class ToolRegistry:
         """
         return self.tools.get(tool_name)
 
+    async def register_mcp_source(self, mcp_client_manager):
+        """Register MCP client manager as a tool source."""
+        self.mcp_client_manager = mcp_client_manager
+        logger.info("Registered MCP source in ToolRegistry")
+
+    def register_skill_manager(self, skill_manager):
+        """Register skill manager as a source for business SOPs."""
+        self.skill_manager = skill_manager
+        logger.info("Registered SkillManager in ToolRegistry")
+
+    async def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """
+        Get all tool definitions (Local + Skills + MCP).
+        
+        Returns:
+            List of tool definitions
+        """
+        # Get local tools
+        definitions = list(self.tools.values()) # Assuming self.tools still stores dicts for now
+        
+        # Get business skills (SOPs)
+        if hasattr(self, 'skill_manager') and self.skill_manager:
+            definitions.extend(self.skill_manager.get_skill_definitions())
+            
+        # Get MCP tools
+        if hasattr(self, 'mcp_client_manager') and self.mcp_client_manager:
+            try:
+                mcp_tools = await self.mcp_client_manager.list_tools()
+                definitions.extend(mcp_tools)
+            except Exception as e:
+                logger.error(f"Error fetching MCP tools: {e}")
+                
+        return definitions
+
+    def is_skill(self, tool_name: str) -> bool:
+        """Check if a capability is a high-level Skill (SOP)."""
+        if hasattr(self, 'skill_manager') and self.skill_manager:
+            return self.skill_manager.get_skill(tool_name) is not None
+        return False
+
     async def execute_tool(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
-        update: Update = None,
-        context: ContextTypes.DEFAULT_TYPE = None
-    ) -> str:
-        """
-        Execute a tool.
+        update: Any = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Execute a tool by name."""
+        # 1. Check for Business Skills (SOPs) - High Priority
+        if hasattr(self, 'skill_manager') and self.skill_manager:
+            skill = self.skill_manager.get_skill(tool_name)
+            if skill:
+                logger.debug(f"Executing skill: {tool_name}")
+                return await self.skill_manager.execute_skill(tool_name, tool_input, {"platform": update})
 
-        Args:
-            tool_name: Name of the tool to execute
-            tool_input: Input parameters for the tool
-            update: Telegram update (optional)
-            context: Telegram context (optional)
+        # 2. Check for MCP Tools
+        if tool_name.startswith("mcp__") and hasattr(self, 'mcp_client_manager') and self.mcp_client_manager:
+            try:
+                parts = tool_name.split("__")
+                if len(parts) >= 3:
+                    server_name = parts[1]
+                    real_tool_name = "__".join(parts[2:])
+                    return await self.mcp_client_manager.execute_tool(server_name, real_tool_name, tool_input)
+            except Exception as e:
+                logger.error(f"Error executing MCP tool {tool_name}: {e}")
+                return f"Error executing MCP tool: {str(e)}"
 
-        Returns:
-            Tool execution result as string
-        """
-        if tool_name not in self.tool_handlers:
-            return f"Tool '{tool_name}' not found"
+        # 3. Check for Local Tools (Technical Plugins)
+        if tool_name in self.tool_handlers:
+            try:
+                handler = self.tool_handlers[tool_name]
+                result = await handler(tool_input, update, context)
+                return str(result) if result is not None else "Tool executed successfully"
+            except Exception as e:
+                logger.error(f"Error executing tool {tool_name}: {e}")
+                return f"Error executing tool: {str(e)}"
 
-        try:
-            handler = self.tool_handlers[tool_name]
-            result = await handler(tool_input, update, context)
-            return str(result) if result is not None else "Tool executed successfully"
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}")
-            return f"Error executing tool: {str(e)}"
+        return f"Capability '{tool_name}' not found"
 
     def list_tools(self) -> List[str]:
         """
-        List all registered tools.
-
-        Returns:
-            List of tool names
+        List all registered local tools.
+        (Sync method only lists local tools for backward compatibility if needed, 
+         but ideally should use get_tool_definitions)
         """
         return list(self.tools.keys())
 

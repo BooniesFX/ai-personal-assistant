@@ -88,7 +88,8 @@ class HybridClaudeBot:
         # Otherwise, process with Claude agent
         try:
             # Stream response for better user experience
-            await self.claude_agent.stream_message(update, context)
+            # Process message (now uses AgentCore with ReAct loop)
+            await self.claude_agent.process_message(update, context)
         except Exception as e:
             logger.error(f"Error in Claude agent: {e}")
             await update.effective_message.reply_text(
