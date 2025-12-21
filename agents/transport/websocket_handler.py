@@ -168,22 +168,31 @@ class WebSocketHandler:
         user_id = client.bound_identity or client.telegram_id or f"web_{client_id}"
         
         # Define status callback for real-time visibility
-        async def status_callback(status: str):
-            """Push status update to client."""
-            # Simple mapping of status text to state
+        async def status_callback(status: Any):
+            """Push status update or tool result to client."""
+            if isinstance(status, dict) and status.get("type") == "tool_result":
+                # Send tool result as a message so UI can render it (like images)
+                await self._send(client.websocket, {
+                    "type": MessageType.MESSAGE_ADDED,
+                    "message": {
+                        "role": "tool",
+                        "content": status["content"],
+                        "tool_name": status["tool_name"]
+                    }
+                })
+                return
+
+            # fallback to state change for text status
+            status_str = str(status)
             state = "thinking"
-            if "tool" in status.lower() or "executing" in status.lower():
+            if "tool" in status_str.lower() or "executing" in status_str.lower():
                 state = "tool_use"
             
             await self._send(client.websocket, {
                 "type": MessageType.SESSION_STATE_CHANGED,
                 "state": state,
-                "status_text": status  # Optional: send full text if client supports it
-            })
-
-            # Also send as ephemeral system/tool message if needed, 
-            # but for now let's just stick to state change
-        
+                "status_text": status_str
+            })        
         try:
             # Create unified message
             message = Message(

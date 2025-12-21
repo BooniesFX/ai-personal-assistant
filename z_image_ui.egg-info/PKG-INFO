@@ -16,6 +16,7 @@ Requires-Dist: python-dotenv>=1.2.1
 Requires-Dist: python-telegram-bot>=22.5
 Requires-Dist: python-multipart>=0.0.6
 Requires-Dist: requests>=2.32.5
+Requires-Dist: mcp>=1.0.0
 
 # Personal Assistant Bot
 

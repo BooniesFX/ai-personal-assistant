@@ -14,6 +14,7 @@ plugins/ops/ai_client.py
 plugins/ops/plugin.py
 plugins/ops/scheduler.py
 plugins/ops/storage.py
+tests/test_web_integration.py
 utils/__init__.py
 utils/api_client.py
 utils/config.py

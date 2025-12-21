@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Session Management Package
+Session Management Package (Legacy - Replaced by unified AgentCore logic)
 """
 
-from .manager import SessionManager, SessionData
-
-__all__ = ['SessionManager', 'SessionData']
+__all__ = []

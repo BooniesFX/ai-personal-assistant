@@ -76,8 +76,6 @@ class AgentCore:
         if self._initialized:
             return
         
-        from agents.session.manager import SessionManager
-        from agents.memory.store import JSONMemoryStore
         from agents.memory.short_term import ShortTermMemory
         from agents.memory.long_term import LongTermMemory
         from agents.memory.summarizer import MemorySummarizer
@@ -94,8 +92,6 @@ class AgentCore:
             self.config = load_config()
         
         # Initialize core components
-        self.memory_store = JSONMemoryStore("data/claude_memory.json")
-        self.session_manager = SessionManager(self.memory_store)
         self.llm_client = ClaudeClient(self.config)
         self.mcp_client_manager = MCPClientManager()
         self.skill_manager = SkillManager()
@@ -157,6 +153,25 @@ class AgentCore:
         
         logger.info(f"AgentCore initialized with {len(self.tool_registry.list_tools())} tools")
         self._initialized = True
+
+    async def shutdown(self):
+        """Shutdown all components and clean up resources."""
+        if not self._initialized:
+            return
+            
+        logger.info("Shutting down AgentCore...")
+        
+        # Shutdown MCP sessions
+        if hasattr(self, 'mcp_client_manager') and self.mcp_client_manager:
+            await self.mcp_client_manager.shutdown()
+            
+        # Shutdown plugins
+        if self.plugin_manager:
+            await self.plugin_manager.shutdown()
+            
+        self._initialized = False
+        logger.info("AgentCore shutdown complete")
+
     
     def register_transport(self, platform: Platform, adapter):
         """
@@ -352,6 +367,15 @@ class AgentCore:
                         
                     # Save Tool Result to LOCAL context only
                     await add_context("tool", result_content, tool_call_id=tool_id, save_to_memory=False)
+                    
+                    # Also notify status_callback about the tool result (useful for web UI to render images)
+                    if status_callback:
+                        await status_callback({
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "tool_id": tool_id,
+                            "content": result_content
+                        })
             
             if not final_response:
                 final_response = Response(
@@ -376,7 +400,9 @@ class AgentCore:
         base = (
             "You are a helpful AI assistant. "
             "You have access to tools and should use them when appropriate. "
-            "Respond naturally and concisely."
+            "Respond naturally and concisely.\n\n"
+            "IMPORTANT: If a tool returns a result (like an image markdown link or a data summary), "
+            "make sure to incorporate or mention it in your final response to the user so they can see it."
         )
         
         platform_hints = {

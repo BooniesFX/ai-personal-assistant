@@ -483,22 +483,19 @@ def run_standalone(host="0.0.0.0", port=8080):
     from dotenv import load_dotenv
     load_dotenv()
     
-    from agents.core.client import ClaudeClient
-    from agents.session.manager import SessionManager
-    from agents.memory.store import JSONMemoryStore
-    from agents.tools.registry import ToolRegistry
+    from agents.core.agent_core import get_agent_core
     from agents.transport.websocket_handler import WebSocketHandler
     
-    # Initialize components
-    memory_store = JSONMemoryStore("data/claude_memory.json")
-    session_manager = SessionManager(memory_store)
-    claude_client = ClaudeClient()
-    tool_registry = ToolRegistry()
+    # Initialize components using unified AgentCore
+    from utils.config import load_config
+    config = load_config()
+    agent_core = get_agent_core(config)
     
     # Create handler
-    ws_handler = WebSocketHandler(session_manager, claude_client, tool_registry)
+    ws_handler = WebSocketHandler(agent_core)
     
     async def main():
+        await agent_core.initialize()
         runner = await create_web_server(
             host=host,
             port=port,

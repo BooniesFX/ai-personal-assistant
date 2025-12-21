@@ -103,7 +103,7 @@ class ClaudeCodeAgentBot:
         Returns:
             Help text string
         """
-        tools = self.tool_registry.get_tool_definitions()
+        tools = await self.agent_core.tool_registry.get_tool_definitions()
         if not tools:
             return "No tools available."
 
@@ -118,8 +118,7 @@ class ClaudeCodeAgentBot:
     def cleanup(self):
         """Cleanup resources."""
         try:
-            self.session_manager.cleanup_expired_sessions()
-            self.memory_store.save()
+            # We no longer have session_manager/memory_store here as they were moved to AgentCore or removed
             logger.info("ClaudeCodeAgentBot cleaned up")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")

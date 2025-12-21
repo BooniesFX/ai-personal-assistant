@@ -28,44 +28,76 @@ class MCPServerConfig:
     url: Optional[str] = None
 
 class MCPClientManager:
-    """Manages connections to multiple MCP servers."""
+    """Manages connections to multiple MCP servers with persistent sessions."""
     
     def __init__(self):
         self.servers: Dict[str, MCPServerConfig] = {}
+        self._sessions: Dict[str, ClientSession] = {}
+        self._exit_stacks: Dict[str, Any] = {} # To store context managers
+        self._lock = asyncio.Lock()
         
     async def connect_server(self, name: str, config: MCPServerConfig):
         """Register an MCP server configuration."""
         self.servers[name] = config
         logger.info(f"Registered MCP server config: {name} ({config.transport})")
 
-    async def list_tools(self) -> List[Dict]:
-        """List all tools from all registered MCP servers."""
-        all_tools = []
-        
-        for name, config in self.servers.items():
+    async def _get_session(self, name: str) -> Optional[ClientSession]:
+        """Get or create a persistent session for a server."""
+        async with self._lock:
+            if name in self._sessions:
+                return self._sessions[name]
+                
+            if name not in self.servers:
+                return None
+                
+            config = self.servers[name]
             try:
+                logger.info(f"Initializing persistent MCP session for {name}...")
+                from contextlib import AsyncExitStack
+                stack = AsyncExitStack()
+                self._exit_stacks[name] = stack
+                
                 if config.transport == "sse":
-                    async with sse_client(config.url) as (read, write):
-                        async with ClientSession(read, write) as session:
-                            await session.initialize()
-                            result = await session.list_tools()
-                            all_tools.extend(self._namespace_tools(name, result.tools))
+                    from mcp.client.sse import sse_client
+                    read_write = await stack.enter_async_context(sse_client(config.url))
+                    read, write = read_write
                 else:
-                    # Stdio default
-                    async with stdio_client(
+                    from mcp.client.stdio import stdio_client, StdioServerParameters
+                    read_write = await stack.enter_async_context(stdio_client(
                         StdioServerParameters(
                             command=config.command,
                             args=config.args,
                             env=config.env
                         )
-                    ) as (read, write):
-                        async with ClientSession(read, write) as session:
-                            await session.initialize()
-                            result = await session.list_tools()
-                            all_tools.extend(self._namespace_tools(name, result.tools))
-                            
+                    ))
+                    read, write = read_write
+                
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                
+                self._sessions[name] = session
+                return session
+            except Exception as e:
+                logger.error(f"Failed to initialize MCP session for {name}: {e}")
+                if name in self._exit_stacks:
+                    await self._exit_stacks[name].aclose()
+                    del self._exit_stacks[name]
+                return None
+
+    async def list_tools(self) -> List[Dict]:
+        """List all tools from all registered MCP servers using persistent sessions."""
+        all_tools = []
+        
+        for name in list(self.servers.keys()):
+            try:
+                session = await self._get_session(name)
+                if session:
+                    result = await session.list_tools()
+                    all_tools.extend(self._namespace_tools(name, result.tools))
             except Exception as e:
                 logger.error(f"Error listing tools for {name}: {e}")
+                # Clear session on error to force reconnect next time
+                await self._close_session(name)
                 
         return all_tools
 
@@ -81,37 +113,32 @@ class MCPClientManager:
         return namespaced
 
     async def execute_tool(self, name: str, tool_name: str, arguments: Dict) -> Any:
-        """Execute a tool on a specific MCP server."""
-        if name not in self.servers:
-            raise ValueError(f"MCP server not found: {name}")
+        """Execute a tool on a specific MCP server using a persistent session."""
+        session = await self._get_session(name)
+        if not session:
+            raise ValueError(f"MCP server session not available: {name}")
             
-        config = self.servers[name]
-        
         try:
-            logger.info(f"Executing tool {tool_name} on {name} ({config.transport})...")
-            if config.transport == "sse":
-                 async with sse_client(config.url) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        logger.info("SSE Session init...")
-                        await session.initialize()
-                        logger.info("SSE Calling tool...")
-                        result = await session.call_tool(tool_name, arguments)
-                        logger.info("SSE Tool called. Returning result.")
-                        return result.content
-            else:
-                async with stdio_client(
-                    StdioServerParameters(
-                        command=config.command,
-                        args=config.args,
-                        env=config.env
-                    )
-                ) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        result = await session.call_tool(tool_name, arguments)
-                        return result.content
-                    
+            logger.info(f"Executing tool {tool_name} on {name} (persistent)...")
+            result = await session.call_tool(tool_name, arguments)
+            return result.content
         except Exception as e:
             logger.error(f"Error executing tool {tool_name} on {name}: {e}")
+            # Clear session on error
+            await self._close_session(name)
             raise
+
+    async def _close_session(self, name: str):
+        """Close a specific session."""
+        if name in self._sessions:
+            del self._sessions[name]
+        if name in self._exit_stacks:
+            await self._exit_stacks[name].aclose()
+            del self._exit_stacks[name]
+
+    async def shutdown(self):
+        """Shutdown all MCP sessions."""
+        logger.info("Shutting down all MCP sessions...")
+        for name in list(self._exit_stacks.keys()):
+            await self._close_session(name)
 
