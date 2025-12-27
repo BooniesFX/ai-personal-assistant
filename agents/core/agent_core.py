@@ -131,6 +131,21 @@ class AgentCore:
         
         logger.info("Dual memory system initialized (short-term: 5 turns, long-term: persistent)")
         
+        # --- Butler / Network Initialization ---
+        from agents.network.registry import AgentRegistry
+        from agents.network.client import NetworkClient
+        from agents.network.dispatch import DispatchTool
+        
+        self.agent_registry = AgentRegistry()
+        self.network_client = NetworkClient()
+        self.dispatch_tool = DispatchTool(self.agent_registry, self.network_client)
+        
+        # Register Dispatch Tool
+        dispatch_def = self.dispatch_tool.get_tool_definition()
+        self.tool_registry.register_tool(dispatch_def, self.dispatch_tool.execute)
+        logger.info("Butler Network initialized: DispatchTool registered")
+        # ---------------------------------------
+
         # Load plugins as tools
         self.plugin_manager = PluginManager(self.config, logger)
         await self.plugin_manager.load_plugins()

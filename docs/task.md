@@ -1,0 +1,26 @@
+# Task: A2A Agent Network Design & Implementation
+
+- [x] Research & Architecture Comparison
+- [x] Research A2A Protocols
+- [x] Design "Butler" Architecture
+- [x] Refine Integration Strategy (Sidecars)
+    - [x] Design **Agent Sidecar** (Bridge) pattern
+    - [x] Define `A2A <-> OpenAI` translation layer
+    - [x] Define `A2A <-> CLI` translation layer
+- [x] Implementation Phase 1: Core Network [/]
+    - [x] `agents/network/models.py` (Data Models)
+    - [x] `agents/network/registry.py` (Registry Logic)
+    - [x] `agents/network/client.py` (HTTP Client)
+    - [x] `agents/tools/dispatch.py` (The Tool)
+- [x] Implement Agent Core Integration [/]
+    - [x] Update `AgentCore.initialize`
+    - [x] Register `DispatchTool`
+- [ ] Implementation Phase 2: The Sidecar [/]
+    - [ ] `sidecar/app.py` (FastAPI wrapper)
+    - [ ] `sidecar/adapters/base.py` (Adapter Interface)
+    - [ ] `sidecar/adapters/cli.py` (CLI Adapter)
+    - [ ] Support wrapping `claude` CLI
+    - [ ] Support wrapping OpenAI API
+- [ ] Verification [ ]
+    - [ ] Run Butler + One Sidecar (Mock or Real)
+    - [ ] Verify message flow

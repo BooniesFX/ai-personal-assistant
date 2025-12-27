@@ -55,7 +55,8 @@ async def main():
     web_runner = await create_web_server(
         host=web_host,
         port=web_port,
-        ws_handler=ws_handler
+        ws_handler=ws_handler,
+        agent_core=agent_core
     )
     logger.info(f"Web transport started at http://{web_host}:{web_port}")
     

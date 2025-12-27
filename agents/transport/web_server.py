@@ -31,7 +31,8 @@ async def create_web_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     ws_handler = None,
-    static_dir: str = None
+    static_dir: str = None,
+    agent_core = None
 ):
     """
     Create and start web server with WebSocket support.
@@ -41,19 +42,22 @@ async def create_web_server(
         port: Bind port
         ws_handler: WebSocketHandler instance
         static_dir: Directory for static files (web client)
+        agent_core: AgentCore instance
     """
     if web is None:
         raise RuntimeError("aiohttp not installed")
     
     app = web.Application()
     
-    # Store handler
+    # Store handler and core
     app['ws_handler'] = ws_handler
     app['ws_clients'] = {}
+    app['agent_core'] = agent_core
     
     # Routes
     app.router.add_get('/ws', websocket_handler)
     app.router.add_get('/api/health', health_handler)
+    app.router.add_post('/network/register', agent_register_handler)
     
     # Serve generated images
     images_dir = os.path.join(os.getcwd(), 'data', 'generated_images')
@@ -106,6 +110,29 @@ async def websocket_handler(request):
 async def health_handler(request):
     """Health check endpoint."""
     return web.json_response({"status": "ok"})
+
+
+async def agent_register_handler(request):
+    """Handle agent registration."""
+    try:
+        data = await request.json()
+        
+        # Validate using Pydantic model
+        from agents.network.models import AgentMetadata
+        agent_data = AgentMetadata(**data)
+        
+        # Get AgentCore from app
+        agent_core = request.app['agent_core']
+        if not hasattr(agent_core, 'agent_registry'):
+            return web.json_response({"error": "Agent registry not initialized"}, status=503)
+            
+        await agent_core.agent_registry.register_agent(agent_data)
+        
+        return web.json_response({"status": "registered", "id": agent_data.id})
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        return web.json_response({"error": str(e)}, status=400)
+
 
 
 async def index_handler(request):
@@ -499,7 +526,8 @@ def run_standalone(host="0.0.0.0", port=8080):
         runner = await create_web_server(
             host=host,
             port=port,
-            ws_handler=ws_handler
+            ws_handler=ws_handler,
+            agent_core=agent_core
         )
         
         try:
