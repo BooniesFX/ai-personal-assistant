@@ -59,6 +59,7 @@ async def startup_event():
     
     # Auto-Register
     if BUTLER_URL:
+        logger.info(f"Auto-registration enabled for {BUTLER_URL}")
         asyncio.create_task(register_loop())
 
 async def register_loop():

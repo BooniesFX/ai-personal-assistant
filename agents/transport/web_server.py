@@ -57,6 +57,7 @@ async def create_web_server(
     # Routes
     app.router.add_get('/ws', websocket_handler)
     app.router.add_get('/api/health', health_handler)
+    app.router.add_get('/api/agents', agent_list_handler)
     app.router.add_post('/network/register', agent_register_handler)
     
     # Serve generated images
@@ -132,6 +133,27 @@ async def agent_register_handler(request):
     except Exception as e:
         logger.error(f"Registration error: {e}")
         return web.json_response({"error": str(e)}, status=400)
+
+
+async def agent_list_handler(request):
+    """Handle agent list request."""
+    agent_core = request.app['agent_core']
+    if not hasattr(agent_core, 'agent_registry'):
+        return web.json_response({"error": "Agent registry not initialized"}, status=503)
+        
+    agents = await agent_core.agent_registry.list_agents()
+    
+    agent_list = []
+    for agent in agents:
+        agent_list.append({
+            "id": agent.id,
+            "name": agent.name,
+            "url": agent.url,
+            "capabilities": agent.capabilities,
+            "status": "online" # Assuming if it's in registry, it's online
+        })
+        
+    return web.json_response({"agents": agent_list})
 
 
 

@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Butler AI Console</title>
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
+    <!-- Markdown & Highlight -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+
+    <style>
+        :root {
+            --bg-color: #0f1115;
+            --sidebar-bg: rgba(20, 22, 28, 0.7);
+            --content-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+            --accent-color: #6366f1;
+            --accent-hover: #4f46e5;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --error-color: #ef4444;
+            --message-user-bg: #4f46e5;
+            --message-ai-bg: rgba(255, 255, 255, 0.05);
+            --tool-bg: rgba(16, 185, 129, 0.05);
+            --tool-border: rgba(16, 185, 129, 0.2);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(at 0% 0%, hsla(253, 16%, 7%, 1) 0, transparent 50%),
+                radial-gradient(at 50% 0%, hsla(225, 39%, 30%, 1) 0, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(339, 49%, 30%, 1) 0, transparent 50%);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-color);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-color);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* App Container */
+        .app-container {
+            width: 100%;
+            max-width: 1440px;
+            height: 100%;
+            display: flex;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            /* Prevent shrink */
+            background: var(--sidebar-bg);
+            border-right: var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: white;
+            padding-bottom: 20px;
+            border-bottom: var(--glass-border);
+        }
+
+        .logo img {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            /* Slightly rounded corners for the logo */
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.3);
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .refresh-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .refresh-btn:hover {
+            color: white;
+        }
+
+        .agent-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .agent-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: var(--glass-border);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .agent-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateY(-2px);
+        }
+
+        .agent-avatar {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            color: white;
+        }
+
+        .agent-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .agent-name {
+            font-size: 0.9rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .agent-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--success-color);
+            box-shadow: 0 0 5px var(--success-color);
+        }
+
+        .user-panel {
+            margin-top: auto;
+            border-top: var(--glass-border);
+            padding-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #2d3748;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Main Chat Area */
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        /* Header */
+        .chat-header {
+            height: 64px;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: var(--glass-border);
+            backdrop-filter: blur(10px);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            border: var(--glass-border);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.connected {
+            color: var(--success-color);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.thinking {
+            color: var(--warning-color);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .status-badge.error {
+            color: var(--error-color);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        /* Messages */
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+        }
+
+        /* Custom Scrollbar */
+        .messages-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .messages-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .message {
+            display: flex;
+            gap: 16px;
+            animation: fadeIn 0.3s ease;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-content {
+            padding: 16px 20px;
+            border-radius: 16px;
+            background: var(--message-ai-bg);
+            border: var(--glass-border);
+            line-height: 1.6;
+            font-size: 0.95rem;
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+
+            /* Text Wrapping and Overflow Handling */
+            word-break: break-word;
+            /* Allows long words to break */
+            overflow-wrap: break-word;
+            /* Replaces word-wrap */
+            max-width: 100%;
+        }
+
+        .message.user .message-content {
+            background: var(--message-user-bg);
+            border: none;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            border-top-left-radius: 4px;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--bg-color);
+            border: var(--glass-border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+            font-size: 1.2rem;
+            overflow: hidden;
+        }
+
+        .message-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .user .message-avatar {
+            display: none;
+        }
+
+        /* Markdown Styles */
+        .message-content h1,
+        .message-content h2,
+        .message-content h3 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+            color: white;
+        }
+
+        .message-content h1:first-child,
+        .message-content h2:first-child {
+            margin-top: 0;
+        }
+
+        .message-content pre {
+            background: #1e1e1e !important;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+
+            /* Code Block Formatting */
+            white-space: pre !important;
+            /* Preserves whitespace & structure */
+            overflow-x: auto;
+            /* Adds scrollbar for long lines */
+            max-width: 100%;
+        }
+
+        /* Ensure normal text wraps inside paragraphs */
+        .message-content p {
+            margin-bottom: 10px;
+            white-space: normal;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* List Formatting */
+        .message-content ul,
+        .message-content ol {
+            margin-left: 20px;
+            margin-bottom: 10px;
+            padding-left: 20px !important;
+            /* Restore padding for bullets */
+        }
+
+        .message-content li {
+            margin-bottom: 4px;
+        }
+
+        .message-content a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .message-content img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 8px;
+        }
+
+        /* Tool Call Styles */
+        details.tool-call {
+            margin: 10px 0;
+            background: var(--tool-bg);
+            border: 1px solid var(--tool-border);
+            border-radius: 8px;
+            overflow: hidden;
+            font-size: 0.9rem;
+            max-width: 100%;
+        }
+
+        details.tool-call summary {
+            padding: 10px 14px;
+            cursor: pointer;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success-color);
+            font-weight: 500;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+
+        details.tool-call summary:hover {
+            background: rgba(16, 185, 129, 0.15);
+        }
+
+        details.tool-call summary::before {
+            content: '⚙️';
+            font-size: 1rem;
+        }
+
+        details.tool-call summary::after {
+            content: '▼';
+            margin-left: auto;
+            font-size: 0.8em;
+            transition: transform 0.2s;
+        }
+
+        details.tool-call[open] summary::after {
+            transform: rotate(180deg);
+        }
+
+        div.tool-output {
+            padding: 14px;
+            border-top: 1px solid var(--tool-border);
+            background: rgba(0, 0, 0, 0.2);
+            font-family: 'JetBrains Mono', monospace;
+            color: #d1d5db;
+            font-size: 0.85rem;
+            max-height: 300px;
+            overflow-y: auto;
+
+            /* Tool Output Formatting */
+            white-space: pre-wrap;
+            /* Wrap long lines but keep whitespace */
+            word-break: break-all;
+            /* Aggressive breaking for logs */
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 24px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: var(--glass-border);
+            backdrop-filter: blur(10px);
+        }
+
+        .input-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            border: var(--glass-border);
+            padding: 6px;
+            display: flex;
+            align-items: flex-end;
+            transition: all 0.2s;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--accent-color);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        }
+
+        #message-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 14px 16px;
+            font-size: 1rem;
+            resize: none;
+            max-height: 150px;
+            font-family: inherit;
+            outline: none;
+            line-height: 1.5;
+        }
+
+        #send-btn {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            margin-bottom: 4px;
+            margin-right: 4px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        #send-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        #send-btn:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        /* Login Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(5px);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: #1e1e2e;
+            border: var(--glass-border);
+            border-radius: 16px;
+            padding: 40px;
+            width: 380px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: white;
+        }
+
+        .modal input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: var(--glass-border);
+            border-radius: 8px;
+            color: white;
+            outline: none;
+            transition: border 0.2s;
+        }
+
+        .modal input:focus {
+            border-color: var(--accent-color);
+        }
+
+        .modal button {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent-color);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.2s;
+        }
+
+        .modal button:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Responsiveness */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: absolute;
+                left: -280px;
+                z-index: 100;
+                height: 100%;
+                box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
+            }
+
+            .sidebar.open {
+                left: 0;
+            }
+
+            .chat-header {
+                justify-content: space-between;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <div style="color:var(--text-secondary)">Initializing Butler...</div>
+    </div>
+
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h2>🔐 Access Butler</h2>
+            <p style="color:#aaa; margin-bottom:20px; font-size:0.9rem">Authentication required to access the network.
+            </p>
+            <input type="email" id="emailInput" placeholder="Email Address">
+            <input type="password" id="codeInput" placeholder="Access Code (default: password)">
+            <button onclick="login()">Enter System</button>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="logo">
+                <img src="/logo.png" alt="Butler Logo">
+                <span>Butler AI</span>
+            </div>
+
+            <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
+                <div class="section-title">
+                    <span>Active Agents</span>
+                    <button class="refresh-btn" onclick="fetchAgents()" title="Refresh list"><i
+                            class="ri-refresh-line"></i></button>
+                </div>
+                <!-- Agent List Container -->
+                <div class="agent-list" id="agent-list-container">
+                    <div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">Loading
+                        network...</div>
+                </div>
+            </div>
+
+            <div class="user-panel">
+                <div class="user-avatar"><i class="ri-user-smile-line"></i></div>
+                <div class="agent-info">
+                    <div class="agent-name" id="user-name">Guest</div>
+                    <div class="agent-status" style="color:var(--success-color)">Online</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Chat -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div style="font-weight:600; font-size:1.1rem; color:white;">General Channel</div>
+                <div class="status-badge" id="status-badge">
+                    <span class="status-dot-indicator">●</span>
+                    <span id="status-text">Disconnected</span>
+                </div>
+            </header>
+
+            <div class="messages-container" id="messages">
+                <div class="message system">
+                    <div
+                        style="width:100%; text-align:center; color:var(--text-secondary); font-size:0.85rem; margin-top:20px;">
+                        Welcome to Butler AI Network.
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea id="message-input" rows="1" placeholder="Ask anything... (Shift+Enter for new line)"
+                        onkeydown="handleKey(event)"></textarea>
+                    <button id="send-btn" onclick="sendMessage()" disabled>
+                        <i class="ri-send-plane-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let ws = null;
+        let state = 'connecting';
+
+        // Auto-resize textarea
+        const textarea = document.getElementById('message-input');
+        textarea.addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if (this.value === '') this.style.height = 'auto';
+        });
+
+        function handleKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function fetchAgents() {
+            const container = document.getElementById('agent-list-container');
+
+            try {
+                const response = await fetch('/api/agents');
+                const data = await response.json();
+
+                if (data.agents) {
+                    renderAgents(data.agents);
+                } else {
+                    container.innerHTML = '<div style="padding:10px; color:var(--error-color);">Failed to load agents</div>';
+                }
+            } catch (err) {
+                console.error('Failed to fetch agents', err);
+                container.innerHTML = '<div style="padding:10px; color:var(--error-color);">Network Error</div>';
+            }
+        }
+
+        function renderAgents(agents) {
+            const container = document.getElementById('agent-list-container');
+            container.innerHTML = '';
+
+            if (agents.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">No agents online</div>';
+                return;
+            }
+
+            agents.forEach(agent => {
+                const card = document.createElement('div');
+                card.className = 'agent-card';
+                card.onclick = () => {
+                    const input = document.getElementById('message-input');
+                    input.value = `Talk to ${agent.name}: `;
+                    input.focus();
+                };
+
+                const hue = agent.name.length * 30 % 360;
+
+                card.innerHTML = `
+                    <div class="agent-avatar" style="background: linear-gradient(135deg, hsl(${hue}, 60%, 60%) 0%, hsl(${hue}, 60%, 40%) 100%);">
+                        ${agent.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div class="agent-info">
+                        <div class="agent-name" title="${agent.id}">${agent.name}</div>
+                        <div class="agent-status" title="${agent.capabilities.join(', ')}">
+                            <div class="status-dot"></div> Online
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function connect() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                updateStatus('Connected', 'connected');
+                document.getElementById('loading-screen').style.opacity = 0;
+                setTimeout(() => document.getElementById('loading-screen').style.display = 'none', 500);
+                attemptAutoLogin();
+                fetchAgents();
+                setInterval(fetchAgents, 30000);
+            };
+
+            ws.onclose = () => {
+                updateStatus('Disconnected', 'error');
+                setTimeout(connect, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+        }
+
+        function updateStatus(text, className) {
+            const badge = document.getElementById('status-badge');
+            const statusText = document.getElementById('status-text');
+            badge.className = `status-badge ${className}`;
+            statusText.textContent = text;
+
+            const btn = document.getElementById('send-btn');
+            if (className === 'connected' || className === 'idle') {
+                btn.disabled = false;
+            } else if (className === 'thinking') {
+                btn.disabled = true;
+            }
+        }
+
+        function addMessage(role, content, isTool = false) {
+            const container = document.getElementById('messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}`;
+
+            let htmlContent = '';
+
+            if (isTool) {
+                const toolNameMatch = content.match(/Tool '([^']+)'/);
+                const toolName = toolNameMatch ? toolNameMatch[1] : 'System Tool';
+
+                htmlContent = `
+                    <details class="tool-call">
+                        <summary>Executed ${toolName}</summary>
+                        <div class="tool-output">${content}</div>
+                    </details>
+                `;
+            } else {
+                htmlContent = marked.parse(content);
+            }
+
+            // Avatar Handling
+            let avatarHtml = '';
+            if (role === 'assistant') {
+                // Use the logo for the AI assistant
+                avatarHtml = `
+                    <div class="message-avatar">
+                        <img src="/logo.png" alt="AI">
+                    </div>`;
+            } else {
+                avatarHtml = `
+                    <div class="message-avatar">
+                         <i class="ri-user-3-line"></i>
+                    </div>`;
+            }
+
+            msgDiv.innerHTML = `
+                ${avatarHtml}
+                <div class="message-content">
+                    ${htmlContent}
+                </div>
+            `;
+
+            container.appendChild(msgDiv);
+            container.scrollTop = container.scrollHeight;
+
+            msgDiv.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'message_added':
+                    const msg = data.message;
+                    if (msg.role === 'tool' || msg.type === 'tool_result') {
+                        addMessage('assistant', msg.content, true);
+                    } else {
+                        addMessage(msg.role, msg.content);
+                    }
+                    break;
+                case 'session_state_changed':
+                    handleState(data.state, data);
+                    break;
+                case 'login_success':
+                    document.getElementById('loginModal').style.display = 'none';
+                    document.getElementById('user-name').textContent = data.email;
+                    break;
+                case 'error':
+                    if (data.code === 'auth_failed') {
+                        document.getElementById('loginModal').style.display = 'flex';
+                    }
+                    console.error(data);
+                    break;
+            }
+        }
+
+        function handleState(newState, data) {
+            switch (newState) {
+                case 'thinking':
+                    updateStatus('Thinking...', 'thinking');
+                    break;
+                case 'tool_use':
+                    const tools = data.tools ? data.tools.join(', ') : 'Tool';
+                    updateStatus(`Using ${tools}...`, 'thinking');
+                    break;
+                case 'idle':
+                case 'connected':
+                    updateStatus('Ready', 'connected');
+                    fetchAgents();
+                    break;
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const content = input.value.trim();
+            if (!content) return;
+
+            addMessage('user', content);
+            ws.send(JSON.stringify({ type: 'chat', content }));
+
+            input.value = '';
+            input.style.height = 'auto'; // Reset height
+        }
+
+        // Auth
+        function attemptAutoLogin() {
+            const email = localStorage.getItem('email');
+            const code = localStorage.getItem('code');
+            if (email && code) {
+                ws.send(JSON.stringify({ type: 'login', email, code }));
+            } else {
+                document.getElementById('loginModal').style.display = 'flex';
+            }
+        }
+
+        function login() {
+            const email = document.getElementById('emailInput').value.trim();
+            const code = document.getElementById('codeInput').value.trim();
+            if (!email || !code) return;
+
+            localStorage.setItem('email', email);
+            localStorage.setItem('code', code);
+            ws.send(JSON.stringify({ type: 'login', email, code }));
+        }
+
+        window.login = login;
+        window.connect = connect;
+
+        connect();
+
+    </script>
+</body>
+
+</html>

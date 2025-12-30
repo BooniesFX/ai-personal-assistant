@@ -134,16 +134,21 @@ class AgentCore:
         # --- Butler / Network Initialization ---
         from agents.network.registry import AgentRegistry
         from agents.network.client import NetworkClient
-        from agents.network.dispatch import DispatchTool
+        from agents.network.dispatch import DispatchTool, ListAgentsTool
         
         self.agent_registry = AgentRegistry()
         self.network_client = NetworkClient()
         self.dispatch_tool = DispatchTool(self.agent_registry, self.network_client)
+        self.list_agents_tool = ListAgentsTool(self.agent_registry)
         
-        # Register Dispatch Tool
+        # Register Network Tools
         dispatch_def = self.dispatch_tool.get_tool_definition()
         self.tool_registry.register_tool(dispatch_def, self.dispatch_tool.execute)
-        logger.info("Butler Network initialized: DispatchTool registered")
+        
+        list_agents_def = self.list_agents_tool.get_tool_definition()
+        self.tool_registry.register_tool(list_agents_def, self.list_agents_tool.execute)
+        
+        logger.info("Butler Network initialized: DispatchTool and ListAgentsTool registered")
         # ---------------------------------------
 
         # Load plugins as tools

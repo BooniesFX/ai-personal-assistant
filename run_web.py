@@ -45,6 +45,7 @@ async def main():
         host=web_host,
         port=web_port,
         ws_handler=ws_handler,
+        static_dir='static',
         agent_core=agent_core
     )
     

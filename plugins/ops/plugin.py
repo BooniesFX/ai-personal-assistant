@@ -14,6 +14,7 @@ from utils.config import get_config_value
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
 from datetime import datetime, timedelta
+from typing import List
 
 
 class OPSPlugin(BasePlugin):
