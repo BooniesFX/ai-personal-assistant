@@ -67,9 +67,18 @@ async def create_web_server(
     
     # Static files for web client
     if static_dir and os.path.isdir(static_dir):
+        # Serve index.html at root
+        async def static_index_handler(request):
+            index_path = os.path.join(static_dir, 'index.html')
+            if os.path.exists(index_path):
+                return web.FileResponse(index_path)
+            return web.Response(text="index.html not found", status=404)
+            
+        app.router.add_get('/', static_index_handler)
+        # Serve other static files
         app.router.add_static('/', static_dir, name='static')
     else:
-        # Serve a simple index page
+        # Serve a simple embedded index page
         app.router.add_get('/', index_handler)
     
     runner = web.AppRunner(app)
