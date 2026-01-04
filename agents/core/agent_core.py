@@ -256,7 +256,7 @@ class AgentCore:
         context = self._build_context(user_id, session_id)
         
         # Get tools
-        tools = self.tool_registry.get_tool_definitions()
+        tools = await self.tool_registry.get_tool_definitions()
         
         # System prompt with long-term context
         system_prompt = self._get_system_prompt(message.platform, user_id)
@@ -417,10 +417,21 @@ class AgentCore:
     
     def _get_system_prompt(self, platform: Platform, user_id: str = None) -> str:
         """Get system prompt with long-term memory context."""
-        base = (
-            "You are a helpful AI assistant. "
-            "You have access to tools and should use them when appropriate. "
-            "Respond naturally and concisely.\n\n"
+        import datetime
+        now = datetime.datetime.now()
+        current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        weekday = now.strftime("%A")
+
+        base_prompt = (
+            "You are Butler, an advanced agentic coding assistant and personal life manager.\n"
+            f"Current Local Time: {current_time_str} ({weekday})\n"
+            "You have access to a variety of tools and skills to help the user with coding, "
+            "task management, and information retrieval. "
+            "Always be proactive, helpful, and concise.\n\n"
+            "CRITICAL: When using tools, follow the schema exactly. If a tool fails, "
+            "analyze the error and try a different approach.\n\n"
+            "NOTE: The conversation history might contain outdated time information. "
+            "ALWAYS prioritize the 'Current Local Time' provided in this system prompt.\n\n"
             "IMPORTANT: If a tool returns a result (like an image markdown link or a data summary), "
             "make sure to incorporate or mention it in your final response to the user so they can see it."
         )
@@ -432,7 +443,7 @@ class AgentCore:
             Platform.WECHAT: " You are connected via WeChat.",
         }
         
-        prompt = base + platform_hints.get(platform, "")
+        prompt = base_prompt + platform_hints.get(platform, "")
         
         # Add long-term memory context if available
         if user_id and self.long_term_memory:
