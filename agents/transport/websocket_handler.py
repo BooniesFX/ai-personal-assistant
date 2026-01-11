@@ -89,6 +89,14 @@ class WebSocketHandler:
     async def on_close(self, client_id: int):
         """Handle WebSocket disconnection."""
         if client_id in self.clients:
+            # Cancel any running tasks for this client
+            if hasattr(self, 'running_tasks') and client_id in self.running_tasks:
+                task = self.running_tasks[client_id]
+                if not task.done():
+                    task.cancel()
+                    logger.info(f"Cancelled running task for client {client_id}")
+                del self.running_tasks[client_id]
+                
             del self.clients[client_id]
             logger.info(f"WebSocket client {client_id} disconnected")
     
@@ -163,15 +171,14 @@ class WebSocketHandler:
             await self._send_error(client.websocket, "Empty message", code="empty_message")
             return
         
-        # Determine user_id
-        # Use bound identity (Email) if logged in, else fallback to web_ID
         user_id = client.bound_identity or client.telegram_id or f"web_{client_id}"
         
-        # Define status callback for real-time visibility
         async def status_callback(status: Any):
             """Push status update or tool result to client."""
+            if client.websocket.closed:
+                return
+
             if isinstance(status, dict) and status.get("type") == "tool_result":
-                # Send tool result as a message so UI can render it (like images)
                 await self._send(client.websocket, {
                     "type": MessageType.MESSAGE_ADDED,
                     "message": {
@@ -182,56 +189,64 @@ class WebSocketHandler:
                 })
                 return
 
-            # fallback to state change for text status
             status_str = str(status)
             state = "thinking"
-            if "tool" in status_str.lower() or "executing" in status_str.lower():
+            if "tool" in status_str.lower() or "executing" in status_str.lower() or "status" in status_str.lower():
                 state = "tool_use"
             
             await self._send(client.websocket, {
                 "type": MessageType.SESSION_STATE_CHANGED,
                 "state": state,
                 "status_text": status_str
-            })        
-        try:
-            # Create unified message
-            message = Message(
-                user_id=user_id,
-                platform=Platform.WEB,
-                content=content
-            )
-            
-            # Process via AgentCore
-            response = await self.agent_core.process_message(
-                message,
-                platform_context=client,
-                status_callback=status_callback
-            )
-            
-            # Send assistant response
-            await self._send(client.websocket, {
-                "type": MessageType.MESSAGE_ADDED,
-                "message": {
-                    "role": "assistant",
-                    "content": response.content
-                }
             })
+
+        async def run_process():
+            try:
+                message = Message(
+                    user_id=user_id,
+                    platform=Platform.WEB,
+                    content=content
+                )
+                
+                response = await self.agent_core.process_message(
+                    message,
+                    platform_context=client,
+                    status_callback=status_callback
+                )
+                
+                if not client.websocket.closed:
+                    await self._send(client.websocket, {
+                        "type": MessageType.MESSAGE_ADDED,
+                        "message": {
+                            "role": "assistant",
+                            "content": response.content
+                        }
+                    })
+                    await self._send(client.websocket, {
+                        "type": MessageType.SESSION_STATE_CHANGED,
+                        "state": "idle"
+                    })
+            except asyncio.CancelledError:
+                logger.info(f"Task for client {client_id} was explicitly cancelled")
+            except Exception as e:
+                logger.error(f"Error processing chat: {e}")
+                if not client.websocket.closed:
+                    await self._send_error(client.websocket, str(e))
+                    await self._send(client.websocket, {
+                        "type": MessageType.SESSION_STATE_CHANGED,
+                        "state": "error"
+                    })
+            finally:
+                if client_id in getattr(self, 'running_tasks', {}):
+                    del self.running_tasks[client_id]
+
+        if not hasattr(self, 'running_tasks'):
+            self.running_tasks = {}
             
-            # Update state
-            await self._send(client.websocket, {
-                "type": MessageType.SESSION_STATE_CHANGED,
-                "state": "idle"
-            })
+        if client_id in self.running_tasks:
+            self.running_tasks[client_id].cancel()
             
-        except Exception as e:
-            logger.error(f"Error processing chat: {e}")
-            import traceback
-            traceback.print_exc()
-            await self._send_error(client.websocket, str(e))
-            await self._send(client.websocket, {
-                "type": MessageType.SESSION_STATE_CHANGED,
-                "state": "error"
-            })
+        self.running_tasks[client_id] = asyncio.create_task(run_process())
     
     async def _handle_resume(self, client_id: int, client: WebSocketClient, data: dict):
         """Handle session resume request using AgentCore."""
@@ -289,10 +304,13 @@ class WebSocketHandler:
     async def _send(self, websocket, data: dict):
         """Send message to websocket."""
         try:
-            # aiohttp WebSocketResponse uses send_str() not send()
+            if websocket.closed:
+                return
             await websocket.send_str(json.dumps(data))
         except Exception as e:
-            logger.error(f"Error sending to websocket: {e}")
+            # Silently handle closed connections
+            if not websocket.closed:
+                logger.error(f"Error sending to websocket: {e}")
     
     async def _send_error(self, websocket, message: str, code: str = "error"):
         """Send error message."""

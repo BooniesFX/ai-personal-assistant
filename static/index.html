@@ -457,44 +457,41 @@
             margin-top: 8px;
         }
 
-        /* Tool Call Styles */
+        /* Tool Call Styles - Enhanced */
         details.tool-call {
-            margin: 10px 0;
-            background: var(--tool-bg);
-            border: 1px solid var(--tool-border);
-            border-radius: 8px;
+            margin: 12px 0;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 12px;
             overflow: hidden;
             font-size: 0.9rem;
             max-width: 100%;
+            transition: all 0.3s ease;
         }
 
         details.tool-call summary {
-            padding: 10px 14px;
+            padding: 12px 16px;
             cursor: pointer;
             background: rgba(16, 185, 129, 0.1);
-            color: var(--success-color);
-            font-weight: 500;
+            color: #10b981;
+            font-weight: 600;
             list-style: none;
             display: flex;
             align-items: center;
-            gap: 8px;
-            transition: background 0.2s;
-        }
-
-        details.tool-call summary:hover {
-            background: rgba(16, 185, 129, 0.15);
+            gap: 10px;
         }
 
         details.tool-call summary::before {
-            content: '⚙️';
-            font-size: 1rem;
+            content: '\eb92'; /* remixicon: settings-3-line */
+            font-family: 'remixicon';
+            font-size: 1.1rem;
         }
 
         details.tool-call summary::after {
-            content: '▼';
+            content: '\ea4e'; /* remixicon: arrow-down-s-line */
+            font-family: 'remixicon';
             margin-left: auto;
-            font-size: 0.8em;
-            transition: transform 0.2s;
+            transition: transform 0.3s;
         }
 
         details.tool-call[open] summary::after {
@@ -502,20 +499,63 @@
         }
 
         div.tool-output {
-            padding: 14px;
-            border-top: 1px solid var(--tool-border);
-            background: rgba(0, 0, 0, 0.2);
+            padding: 16px;
+            border-top: 1px solid rgba(16, 185, 129, 0.2);
+            background: rgba(15, 23, 42, 0.8);
             font-family: 'JetBrains Mono', monospace;
-            color: #d1d5db;
+            color: #94a3b8;
             font-size: 0.85rem;
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
-
-            /* Tool Output Formatting */
             white-space: pre-wrap;
-            /* Wrap long lines but keep whitespace */
             word-break: break-all;
-            /* Aggressive breaking for logs */
+        }
+
+        /* Status & Thinking Indicators */
+        .message.status {
+            opacity: 0.8;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: flex-start;
+            animation: slideInUp 0.3s ease;
+        }
+
+        @keyframes slideInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 0.8; transform: translateY(0); }
+        }
+
+        .status-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px;
+            background: rgba(255, 255, 255, 0.04);
+            border: var(--glass-border);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .thinking-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .thinking-dot {
+            width: 5px;
+            height: 5px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+
+        .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+        .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.3); }
         }
 
         /* Input Area */
@@ -595,7 +635,7 @@
             width: 100%;
             height: 100%;
             background-color: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(5px);
+            backdrop-filter: blur(10px);
             align-items: center;
             justify-content: center;
         }
@@ -750,6 +790,7 @@
     <script>
         let ws = null;
         let state = 'connecting';
+        let currentStatusElement = null; // Track the current thinking/status bubble
 
         // Auto-resize textarea
         const textarea = document.getElementById('message-input');
@@ -852,8 +893,44 @@
             const btn = document.getElementById('send-btn');
             if (className === 'connected' || className === 'idle') {
                 btn.disabled = false;
+                removeStatusBubble(); // Cleanup thinking bubble when back to idle
             } else if (className === 'thinking') {
                 btn.disabled = true;
+                showStatusBubble(text);
+            }
+        }
+
+        function showStatusBubble(text) {
+            if (currentStatusElement) {
+                currentStatusElement.querySelector('.status-text-content').textContent = text;
+                return;
+            }
+
+            const container = document.getElementById('messages');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'message status';
+            statusDiv.id = 'active-status-bubble';
+
+            statusDiv.innerHTML = `
+                <div class="status-content">
+                    <div class="thinking-dots">
+                        <div class="thinking-dot"></div>
+                        <div class="thinking-dot"></div>
+                        <div class="thinking-dot"></div>
+                    </div>
+                    <span class="status-text-content">${text}</span>
+                </div>
+            `;
+
+            container.appendChild(statusDiv);
+            container.scrollTop = container.scrollHeight;
+            currentStatusElement = statusDiv;
+        }
+
+        function removeStatusBubble() {
+            if (currentStatusElement) {
+                currentStatusElement.remove();
+                currentStatusElement = null;
             }
         }
 
@@ -865,12 +942,14 @@
             let htmlContent = '';
 
             if (isTool) {
-                const toolNameMatch = content.match(/Tool '([^']+)'/);
+                // Try to find tool name and arguments/output
+                const toolNameRef = content.includes('Executing') ? 'Calling' : 'Executed';
+                const toolNameMatch = content.match(/(?:Tool|Executing|Executed) '([^']+)'/);
                 const toolName = toolNameMatch ? toolNameMatch[1] : 'System Tool';
 
                 htmlContent = `
-                    <details class="tool-call">
-                        <summary>Executed ${toolName}</summary>
+                    <details class="tool-call" open>
+                        <summary>${toolNameRef} ${toolName}</summary>
                         <div class="tool-output">${content}</div>
                     </details>
                 `;

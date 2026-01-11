@@ -6,60 +6,31 @@ ModelScope API Client
 Shared client for ModelScope image generation API
 """
 
-import requests
-import time
+import httpx
+import asyncio
 import json
 from io import BytesIO
 from PIL import Image
 
-
 class ModelScopeClient:
-    """Client for ModelScope API"""
+    """Async Client for ModelScope API"""
     
     def __init__(self, api_key, base_url=None, logger=None, provider='modelscope'):
-        """
-        Initialize client
-        
-        Args:
-            api_key: ModelScope API key
-            base_url: API base URL
-            logger: Logger instance (optional)
-        """
         self.provider = provider
         self.logger = logger
-
-
         self.api_key = api_key
-        self.base_url = base_url
+        self.base_url = base_url.rstrip('/') + '/' if base_url else "https://api-inference.modelscope.cn/api/v1/"
 
-    def generate_image(self, prompt, model_id='Tongyi-MAI/Z-Image-Turbo',
+    async def generate_image(self, prompt, model_id='Tongyi-MAI/Z-Image-Turbo',
                       negative_prompt='', width=1024, height=1024,
-                      steps=15, seed=42, timeout=120):
+                      steps=15, seed=42, timeout=120, status_callback=None):
         """
-        Generate image from text prompt
-        
-        Args:
-            prompt: Text prompt
-            model_id: Model identifier
-            negative_prompt: Negative prompt (optional)
-            width: Image width
-            height: Image height
-            steps: Number of inference steps
-            seed: Random seed (optional)
-            timeout: Max wait time in seconds
-            
-        Returns:
-            BytesIO: Generated image
-            
-        Raises:
-            ValueError: If API key not set
-            TimeoutError: If generation times out
-            Exception: For other errors
+        Async generate image from text prompt
         """
         if not self.api_key:
             raise ValueError("ModelScope API Key not configured")
         
-        common_headers = {
+        headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
@@ -67,75 +38,69 @@ class ModelScopeClient:
         request_data = {
             "model": model_id,
             "prompt": prompt,
+            "size": f"{width}x{height}",
+            "steps": steps,
+            "n_steps": steps,
+            "seed": seed
         }
         
         if negative_prompt:
             request_data["negative_prompt"] = negative_prompt
-            
-        # Add optional parameters
-        # OpenAI compatible API expects 'size' as string "WxH"
-        if width and height:
-            request_data["size"] = f"{width}x{height}"
-            
-        if steps:
-            request_data["steps"] = steps
-            request_data["n_steps"] = steps # Send both just in case
-            
-        if seed is not None:
-            request_data["seed"] = seed
-        
-        if self.logger:
-            self.logger.info(f"Generating image for prompt: {prompt}")
-        
-        # Send generation request
-        response = requests.post(
-            f"{self.base_url}v1/images/generations",
-            headers={**common_headers, "X-ModelScope-Async-Mode": "true"},
-            data=json.dumps(request_data, ensure_ascii=False).encode('utf-8')
-        )
-        response.raise_for_status()
-        task_id = response.json()["task_id"]
-        
-        if self.logger:
-            self.logger.info(f"Task ID: {task_id}")
-        
-        # Poll for result
-        max_attempts = timeout // 2
-        attempt = 0
-        
-        while attempt < max_attempts:
-            time.sleep(2)
-            attempt += 1
-            
-            result = requests.get(
-                f"{self.base_url}v1/tasks/{task_id}",
-                headers={**common_headers, "X-ModelScope-Task-Type": "image_generation"},
-            )
-            result.raise_for_status()
-            data = result.json()
-            
-            status = data.get("task_status")
-            
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
             if self.logger:
-                self.logger.info(f"Task Status: {status} (Attempt {attempt}/{max_attempts})")
+                self.logger.info(f"Submitting image task: {prompt[:50]}...")
             
-            if status == "SUCCEED":
-                image_url = data["output_images"][0]
-                if self.logger:
-                    self.logger.info(f"Image URL: {image_url}")
+            # Submit task
+            response = await client.post(
+                f"{self.base_url}v1/images/generations",
+                headers={**headers, "X-ModelScope-Async-Mode": "true"},
+                json=request_data
+            )
+            response.raise_for_status()
+            task_id = response.json().get("task_id")
+            
+            if not task_id:
+                raise Exception(f"Failed to get task_id: {response.text}")
+
+            # Poll for result
+            max_attempts = timeout // 2
+            for attempt in range(1, max_attempts + 1):
+                await asyncio.sleep(2)
                 
-                image_response = requests.get(image_url)
-                image = Image.open(BytesIO(image_response.content))
-                
-                if self.logger:
-                    self.logger.info(f"Received image size: {image.size}")
-                
-                # Convert to BytesIO for returning
-                bio = BytesIO()
-                image.save(bio, format='JPEG', quality=99)
-                bio.seek(0)
-                return bio
-            elif status == "FAILED":
-                raise Exception(f"Image generation failed: {data.get('message', 'Unknown error')}")
-        
+                try:
+                    result_resp = await client.get(
+                        f"{self.base_url}v1/tasks/{task_id}",
+                        headers={**headers, "X-ModelScope-Task-Type": "image_generation"},
+                    )
+                    result_resp.raise_for_status()
+                    data = result_resp.json()
+                    status = data.get("task_status")
+                    
+                    msg = f"Task Status: {status} (Attempt {attempt}/{max_attempts})"
+                    if self.logger:
+                        self.logger.info(msg)
+                    if status_callback:
+                        await status_callback(f"🎨 {msg}")
+
+                    if status == "SUCCEED":
+                        image_url = data["output_images"][0]
+                        img_resp = await client.get(image_url)
+                        img_resp.raise_for_status()
+                        
+                        image = Image.open(BytesIO(img_resp.content))
+                        bio = BytesIO()
+                        image.save(bio, format='JPEG', quality=95)
+                        bio.seek(0)
+                        return bio
+                    
+                    elif status == "FAILED":
+                        raise Exception(f"Image generation failed: {data.get('message', 'Unknown error')}")
+                        
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f"Polling error: {e}")
+                    continue
+
         raise TimeoutError(f"Image generation timed out after {timeout} seconds")
+

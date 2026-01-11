@@ -64,58 +64,73 @@ async def main():
     )
     logger.info(f"Web transport started at http://{web_host}:{web_port}")
     
-    # === Start Telegram Bot ===
+    # === Start Telegram Bot (with background retry) ===
     telegram_adapter = TelegramAdapter(agent_core)
+    telegram_app = None  # Will be set if connected
     
     bot_token = get_config_value(config, 'telegram', 'bot_token')
+    
+    async def start_telegram_with_retry():
+        """Start Telegram bot with automatic retry on failure."""
+        nonlocal telegram_app
+        retry_interval = 10  # seconds
+        
+        while True:
+            try:
+                application = Application.builder().token(bot_token).build()
+                
+                # Add handlers
+                async def start_command(update, context):
+                    await telegram_adapter.handle_command(update, context, "start")
+                
+                async def help_command(update, context):
+                    await telegram_adapter.handle_command(update, context, "help")
+                
+                async def history_command(update, context):
+                    await telegram_adapter.handle_command(update, context, "history")
+                
+                async def generic_command_handler(update, context):
+                    if update.effective_message and update.effective_message.text:
+                        text = update.effective_message.text
+                        if text.startswith('/'):
+                            command = text.split()[0][1:]
+                            await telegram_adapter.handle_command(update, context, command)
+                
+                async def message_handler(update, context):
+                    await telegram_adapter.handle_message(update, context)
+                
+                application.add_handler(CommandHandler("start", start_command))
+                application.add_handler(CommandHandler("help", help_command))
+                application.add_handler(CommandHandler("history", history_command))
+                application.add_handler(MessageHandler(filters.COMMAND, generic_command_handler))
+                application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+                
+                # Initialize and start
+                await application.initialize()
+                await application.start()
+                await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+                
+                telegram_app = application
+                logger.info("✅ Telegram transport connected!")
+                return  # Success, exit retry loop
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Telegram connection failed: {e}. Retrying in {retry_interval}s...")
+                await asyncio.sleep(retry_interval)
+    
+    telegram_task = None
     if not bot_token:
         logger.warning("No Telegram bot token configured, skipping TG transport")
     else:
-        application = Application.builder().token(bot_token).build()
-        
-        # Add handlers
-        async def start_command(update, context):
-            await telegram_adapter.handle_command(update, context, "start")
-        
-        async def help_command(update, context):
-            await telegram_adapter.handle_command(update, context, "help")
-        
-        async def history_command(update, context):
-            await telegram_adapter.handle_command(update, context, "history")
-        
-        async def generic_command_handler(update, context):
-            """Handle all other commands by routing to TelegramAdapter."""
-            if update.effective_message and update.effective_message.text:
-                text = update.effective_message.text
-                if text.startswith('/'):
-                    command = text.split()[0][1:]  # Remove / prefix
-                    await telegram_adapter.handle_command(update, context, command)
-        
-        async def message_handler(update, context):
-            await telegram_adapter.handle_message(update, context)
-        
-        application.add_handler(CommandHandler("start", start_command))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("history", history_command))
-        
-        # Generic handler for all other commands (like /email, /whoami, etc.)
-        application.add_handler(MessageHandler(filters.COMMAND, generic_command_handler))
-        
-        # Regular text messages
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-        
-        # Initialize and start
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        
-        logger.info("Telegram transport started")
+        # Start Telegram connection in background (non-blocking)
+        telegram_task = asyncio.create_task(start_telegram_with_retry())
+        logger.info("🔄 Telegram transport starting in background...")
     
     logger.info("=" * 50)
     logger.info("Unified Agent is running!")
     logger.info(f"  Web:      http://{web_host}:{web_port}")
     if bot_token:
-        logger.info("  Telegram: Active")
+        logger.info("  Telegram: Connecting (background)...")
     logger.info("=" * 50)
     logger.info("Press Ctrl+C to stop")
     
@@ -127,10 +142,12 @@ async def main():
         pass
     finally:
         # Cleanup
-        if bot_token:
-            await application.updater.stop()
-            await application.stop()
-            await application.shutdown()
+        if telegram_task and not telegram_task.done():
+            telegram_task.cancel()
+        if telegram_app:
+            await telegram_app.updater.stop()
+            await telegram_app.stop()
+            await telegram_app.shutdown()
         await web_runner.cleanup()
         await agent_core.shutdown()
 

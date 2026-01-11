@@ -205,18 +205,24 @@ class ImageGenerationPlugin(BasePlugin):
             f"🎨 Generating image...\n"
             f"📝 Prompt: {prompt}\n"
             f"📐 Size: {width}x{height}\n"
-            f"👣 Steps: {steps}\n\n"
             f"Please wait..."
         )
         
+        async def tg_callback(msg: str):
+            try:
+                await status_message.edit_text(f"🎨 Generating...\n{msg}")
+            except:
+                pass
+
         try:
-            # Generate image
-            image_bio = self.api_client.generate_image(
+            # Generate image (awaiting async call)
+            image_bio = await self.api_client.generate_image(
                 prompt=prompt,
                 model_id=self.model_id,
                 width=width,
                 height=height,
-                steps=steps
+                steps=steps,
+                status_callback=tg_callback
             )
             
             # Send image
@@ -235,14 +241,13 @@ class ImageGenerationPlugin(BasePlugin):
             self.logger.error(f"Error generating image: {e}")
             await status_message.edit_text(
                 f"❌ Error generating image:\n{str(e)}\n\n"
-                f"Please try again or contact the administrator."
             )
 
     def get_tool_definition(self) -> Dict[str, Any]:
         """Get tool definition for Claude agent"""
         return {
             "name": "generate_image",
-            "description": "Generate an image based on a text prompt. Use this when the user asks to draw, paint, or create an image.",
+            "description": "Generate an AI image based on a text prompt. ONLY use this tool when the user EXPLICITLY requests to generate, draw, paint, or create an image. Keywords to look for: '画', '生成图', '生成一张', 'draw', 'generate image', 'create picture'. Do NOT use this tool when user is just chatting, sharing observations, or describing something beautiful - respond conversationally instead.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -269,9 +274,8 @@ class ImageGenerationPlugin(BasePlugin):
             }
         }
 
-    async def handle_tool_call(self, args: Dict[str, Any], update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+    async def handle_tool_call(self, args: Dict[str, Any], update: Update, context: Any = None) -> str:
         """Handle execution of the tool - works for both Telegram and Web"""
-        # Map tool args to plugin args (convert string to int if needed)
         width = args.get('width', self.default_width)
         height = args.get('height', self.default_height)
         steps = args.get('steps', self.default_steps)
@@ -283,55 +287,48 @@ class ImageGenerationPlugin(BasePlugin):
             'prompt': args['prompt']
         }
         
-        # Check if we have a Telegram update (web context passes None)
+        # Detect if we have a callback in context (passed by AgentCore)
+        status_callback = None
+        if isinstance(context, dict) and 'status_callback' in context:
+            status_callback = context['status_callback']
+
+        # Check if we have a Telegram update
         if update is not None and hasattr(update, 'message') and update.message:
-            # Telegram context - use existing flow with message sending
             await self._generate_and_send(update, plugin_args)
-            return f"Image generated successfully for prompt: {plugin_args['prompt']}"
+            return f"Image successfully displayed in chat."
         else:
-            # Web or other context - just generate and return result
+            # Web or other context
             try:
                 self.logger.info(f"Generating image for web context: {plugin_args['prompt']}")
                 
                 # Generate image
-                image_bio = self.api_client.generate_image(
+                image_bio = await self.api_client.generate_image(
                     prompt=plugin_args['prompt'],
                     model_id=self.model_id,
                     width=plugin_args['width'],
                     height=plugin_args['height'],
-                    steps=plugin_args['steps']
+                    steps=plugin_args['steps'],
+                    status_callback=status_callback
                 )
                 
-                # For web, we can't directly send the image, so return success message
-                # The actual image would need to be handled differently (e.g., saved to file or returned as base64)
                 if image_bio:
-                    # Save to a temp file and return path
-                    import os
-                    import uuid
-                    from datetime import datetime
-                    
-                    # Create images directory
-                    images_dir = "data/generated_images"
+                    import os, uuid, datetime
+                    images_dir = "static/images" # Public static dir
                     os.makedirs(images_dir, exist_ok=True)
                     
-                    # Generate unique filename
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"image_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+                    filename = f"img_{uuid.uuid4().hex[:8]}.jpg"
                     filepath = os.path.join(images_dir, filename)
                     
-                    # Save image
                     with open(filepath, 'wb') as f:
                         f.write(image_bio.read())
                     
-                    # Return web-accessible URL
                     image_url = f"/images/{filename}"
-                    self.logger.info(f"Image saved to {filepath}, accessible at {image_url}")
-                    return f"✨ Image generated!\n![{plugin_args['prompt']}]({image_url})"
+                    return f"✨ Image Generated!\n![Result]({image_url})"
                 else:
-                    return "Image generation returned no data"
+                    return "Failed: Image data is empty."
                     
             except Exception as e:
-                self.logger.error(f"Error generating image for web: {e}")
-                return f"Error generating image: {str(e)}"
+                self.logger.error(f"Error in web image generation: {e}")
+                return f"Error: {str(e)}"
 
 

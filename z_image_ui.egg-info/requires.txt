@@ -14,3 +14,5 @@ mcp>=1.0.0
 httpx>=0.28.1
 fastapi>=0.122.0
 uvicorn>=0.38.0
+claude-agent-sdk>=0.1.19
+aiohttp-sse>=2.2.0

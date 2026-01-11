@@ -94,36 +94,49 @@ class ToolRegistry:
     async def register_mcp_source(self, mcp_client_manager):
         """Register MCP client manager as a tool source."""
         self.mcp_client_manager = mcp_client_manager
+        self._cached_definitions = None  # Reset cache when new source is registered
         logger.info("Registered MCP source in ToolRegistry")
 
     def register_skill_manager(self, skill_manager):
         """Register skill manager as a source for business SOPs."""
         self.skill_manager = skill_manager
+        self._cached_definitions = None  # Reset cache
         logger.info("Registered SkillManager in ToolRegistry")
 
-    async def get_tool_definitions(self) -> List[Dict[str, Any]]:
+    async def get_tool_definitions(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """
         Get all tool definitions (Local + Skills + MCP).
+        Uses caching to avoid repeated network calls.
+        
+        Args:
+            force_refresh: If True, ignore cache and refetch everything
         
         Returns:
             List of tool definitions
         """
-        # Get local tools
-        definitions = list(self.tools.values()) # Assuming self.tools still stores dicts for now
+        # Return cached if available
+        if not force_refresh and hasattr(self, '_cached_definitions') and self._cached_definitions is not None:
+            return self._cached_definitions
+        
+        # Build fresh definitions
+        definitions = list(self.tools.values())
         
         # Get business skills (SOPs)
         if hasattr(self, 'skill_manager') and self.skill_manager:
             definitions.extend(self.skill_manager.get_skill_definitions())
             
-        # Get MCP tools
+        # Get MCP tools (only fetch once, then cache)
         if hasattr(self, 'mcp_client_manager') and self.mcp_client_manager:
             try:
                 mcp_tools = await self.mcp_client_manager.list_tools()
                 definitions.extend(mcp_tools)
+                logger.info(f"Cached {len(mcp_tools)} MCP tools")
             except Exception as e:
                 logger.error(f"Error fetching MCP tools: {e}")
-                
+        
+        self._cached_definitions = definitions
         return definitions
+
 
     def is_skill(self, tool_name: str) -> bool:
         """Check if a capability is a high-level Skill (SOP)."""

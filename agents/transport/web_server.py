@@ -92,6 +92,62 @@ async def create_web_server(
     return runner
 
 
+def create_web_app(ws_handler, agent_core=None):
+    """Create web app for external runner (SDK mode)."""
+    if web is None:
+        raise RuntimeError("aiohttp not installed")
+    
+    app = web.Application()
+    
+    app['ws_handler'] = ws_handler
+    app['ws_clients'] = {}
+    app['agent_core'] = agent_core
+    
+    # Routes
+    app.router.add_get('/ws', websocket_handler)
+    app.router.add_get('/api/health', health_handler)
+    app.router.add_get('/api/agents', agent_list_handler)
+    app.router.add_post('/network/register', agent_register_handler)
+    
+    # Serve generated images from static/images
+    images_dir = os.path.join(os.getcwd(), 'static', 'images')
+    if os.path.isdir(images_dir):
+        app.router.add_static('/images', images_dir, name='images')
+    
+    # Fallback: old path
+    images_dir_old = os.path.join(os.getcwd(), 'data', 'generated_images')
+    if os.path.isdir(images_dir_old) and not os.path.isdir(images_dir):
+        app.router.add_static('/images', images_dir_old, name='images_legacy')
+    
+    # Serve static files if directory exists
+    static_dir = os.path.join(os.getcwd(), 'static')
+    if os.path.isdir(static_dir):
+        # Serve index.html at root
+        async def static_index_handler(request):
+            index_path = os.path.join(static_dir, 'index.html')
+            if os.path.exists(index_path):
+                return web.FileResponse(index_path)
+            return web.Response(text="index.html not found", status=404)
+        
+        app.router.add_get('/', static_index_handler)
+        # Serve other static files (logo.png, etc.)
+        app.router.add_static('/static', static_dir, name='static_files')
+        # Also serve logo.png directly at root level
+        app.router.add_static('/', static_dir, name='root_static', show_index=False)
+    else:
+        # Fallback to embedded HTML
+        app.router.add_get('/', index_handler)
+    
+    # Add MCP endpoint for remote agent access
+    try:
+        from agents.network.mcp_endpoint import add_mcp_routes
+        add_mcp_routes(app)
+    except ImportError as e:
+        logger.warning(f"MCP endpoint not available: {e}")
+    
+    return app
+
+
 async def websocket_handler(request):
     """Handle WebSocket upgrade and connection."""
     ws_handler = request.app['ws_handler']
@@ -146,9 +202,11 @@ async def agent_register_handler(request):
 
 async def agent_list_handler(request):
     """Handle agent list request."""
-    agent_core = request.app['agent_core']
-    if not hasattr(agent_core, 'agent_registry'):
-        return web.json_response({"error": "Agent registry not initialized"}, status=503)
+    agent_core = request.app.get('agent_core')
+    
+    # Return empty list if no agent registry (SDK mode or no A2A network)
+    if not agent_core or not hasattr(agent_core, 'agent_registry'):
+        return web.json_response({"agents": []})
         
     agents = await agent_core.agent_registry.list_agents()
     
@@ -159,7 +217,7 @@ async def agent_list_handler(request):
             "name": agent.name,
             "url": agent.url,
             "capabilities": agent.capabilities,
-            "status": "online" # Assuming if it's in registry, it's online
+            "status": "online"
         })
         
     return web.json_response({"agents": agent_list})

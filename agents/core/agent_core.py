@@ -378,7 +378,7 @@ class AgentCore:
                             tool_name,
                             tool_input,
                             platform_context,
-                            None
+                            {"status_callback": status_callback}
                         )
                         result_content = str(tool_result)
                     except Exception as e:
