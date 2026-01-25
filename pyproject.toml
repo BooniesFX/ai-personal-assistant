@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "z-image-ui"
+name = "ai-personal-assistant"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI Personal Assistant with multi-platform support (Telegram, Web)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
