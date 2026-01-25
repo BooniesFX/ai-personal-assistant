@@ -20,6 +20,7 @@ class MessageType(str, Enum):
     CHAT = "chat"
     LOGIN = "login"
     MESSAGE_ADDED = "message_added"
+    MESSAGE_CHUNK = "message_chunk"
     SESSION_STATE_CHANGED = "session_state_changed"
     ERROR = "error"
     LOGIN_SUCCESS = "login_success"
@@ -28,6 +29,7 @@ class MessageType(str, Enum):
 class WebSocketClient:
     websocket: Any
     user_id: Optional[str] = None
+    current_message_id: Optional[str] = None
 
 class WebSocketHandlerSDK:
     """WebSocket handler using ButlerSDKAgent"""
@@ -122,33 +124,62 @@ class WebSocketHandlerSDK:
                 })
                 
                 full_response = ""
+                is_first_chunk = True
+                received_any_chunk = False
+                
                 async for msg in self.agent.process_message(user_id, content):
-                    # Parse SDK message types
-                    if isinstance(msg, AssistantMessage):
+                    logger.info(f"SDK Event type: {type(msg).__name__}")
+                    
+                    # Handle granular events if the SDK yields them
+                    if hasattr(msg, 'type') and msg.type == 'content_block_delta':
+                        delta = getattr(msg, 'delta', None)
+                        if delta and hasattr(delta, 'text'):
+                            text = delta.text
+                            full_response += text
+                            received_any_chunk = True
+                            await self._send(client.websocket, {
+                                "type": MessageType.MESSAGE_CHUNK,
+                                "content": text
+                            })
+                    
+                    # Handle full messages
+                    elif isinstance(msg, AssistantMessage):
+                        msg_text = ""
                         for block in msg.content:
                             if isinstance(block, TextBlock):
-                                full_response += block.text
-                                # Stream partial response
-                                await self._send(client.websocket, {
-                                    "type": MessageType.SESSION_STATE_CHANGED,
-                                    "state": "streaming",
-                                    "status_text": block.text[:100] + "..."
-                                })
+                                msg_text += block.text
                             elif isinstance(block, ToolUseBlock):
                                 await self._send(client.websocket, {
                                     "type": MessageType.SESSION_STATE_CHANGED,
                                     "state": "tool_use",
                                     "status_text": f"🔧 Using tool: {block.name}"
                                 })
-                
+                        
+                        if not received_any_chunk:
+                            full_response = msg_text
+                    
+                    # Tool Results
+                    elif isinstance(msg, ToolResultBlock):
+                         await self._send(client.websocket, {
+                            "type": MessageType.MESSAGE_ADDED,
+                            "message": {
+                                "role": "tool",
+                                "content": msg.content,
+                                "tool_name": msg.tool_use_id
+                            }
+                        })
+
                 if not client.websocket.closed:
-                    await self._send(client.websocket, {
-                        "type": MessageType.MESSAGE_ADDED,
-                        "message": {
-                            "role": "assistant",
-                            "content": full_response or "No response."
-                        }
-                    })
+                    # If we haven't sent any chunks, send the full response now
+                    if not received_any_chunk and full_response:
+                        await self._send(client.websocket, {
+                            "type": MessageType.MESSAGE_ADDED,
+                            "message": {
+                                "role": "assistant",
+                                "content": full_response
+                            }
+                        })
+                        
                     await self._send(client.websocket, {
                         "type": MessageType.SESSION_STATE_CHANGED,
                         "state": "idle"

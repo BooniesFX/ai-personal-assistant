@@ -417,8 +417,9 @@ async def index_handler(request):
     
     <script>
         let ws = null;
-        let state = 'connecting';
+        let state = 'idle';
         let currentUser = null;
+        let currentAssistantMessageDiv = null;
         
         function connect() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -476,6 +477,9 @@ async def index_handler(request):
                 case 'message_added':
                     addMessage(data.message);
                     break;
+                case 'message_chunk':
+                    appendChunk(data.content);
+                    break;
                 case 'session_state_changed':
                     handleStateChange(data.state, data);
                     break;
@@ -500,21 +504,23 @@ async def index_handler(request):
             state = newState;
             switch(newState) {
                 case 'connected':
-                    state = 'idle';  // Treat connected as idle
+                    state = 'idle';
                     updateStatus('Connected', '#4a4aff');
                     document.getElementById('sendBtn').disabled = false;
                     break;
                 case 'thinking':
-                    updateStatus('Thinking...', '#ffaa00');
+                    updateStatus(data.status_text || 'Thinking...', '#ffaa00');
                     document.getElementById('sendBtn').disabled = true;
+                    // Reset current assistant message pointer when starting new thinking phase
+                    currentAssistantMessageDiv = null;
                     break;
                 case 'tool_use':
-                    const tools = data.tools ? data.tools.join(', ') : 'unknown';
-                    updateStatus(`Using tool: ${tools}`, '#00aaff');
+                    updateStatus(data.status_text || 'Using tool...', '#00aaff');
                     break;
                 case 'idle':
                     updateStatus('Ready', '#4a4aff');
                     document.getElementById('sendBtn').disabled = false;
+                    currentAssistantMessageDiv = null;
                     break;
                 case 'error':
                     updateStatus('Error', '#ff4a4a');
@@ -527,24 +533,42 @@ async def index_handler(request):
             const div = document.createElement('div');
             div.className = `message ${msg.role}`;
             
-            // Check for markdown image syntax: ![alt](url)
-            const content = msg.content;
+            if (msg.role === 'assistant') {
+                currentAssistantMessageDiv = div;
+            }
+
+            renderContent(div, msg.content);
+            document.getElementById('messages').appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function appendChunk(chunk) {
+            if (!currentAssistantMessageDiv) {
+                // Should not happen with proper state flow, but for safety:
+                addMessage({ role: 'assistant', content: '' });
+            }
+            
+            // Append raw text stored in a data attribute
+            let rawContent = currentAssistantMessageDiv.dataset.raw || "";
+            rawContent += chunk;
+            currentAssistantMessageDiv.dataset.raw = rawContent;
+            
+            renderContent(currentAssistantMessageDiv, rawContent);
+            currentAssistantMessageDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderContent(div, content) {
+            // Basic markdown-like rendering for images and newlines
             const imageRegex = /!\\[([^\\]]*)\\]\\(([^)]+)\\)/g;
             
             if (imageRegex.test(content)) {
-                // Reset regex
                 imageRegex.lastIndex = 0;
-                // Replace markdown images with img tags
                 let html = content.replace(imageRegex, '<br><img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin-top:8px;"><br>');
-                // Also convert newlines
                 html = html.replace(/\\n/g, '<br>');
                 div.innerHTML = html;
             } else {
-                div.textContent = content;
+                div.innerHTML = content.replace(/\\n/g, '<br>');
             }
-            
-            document.getElementById('messages').appendChild(div);
-            div.scrollIntoView({ behavior: 'smooth' });
         }
         
         function addSystemMessage(text) {

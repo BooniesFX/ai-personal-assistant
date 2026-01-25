@@ -104,7 +104,15 @@ def convert_anthropic_to_openai(anthropic_request: dict) -> dict:
 
     # 3. Model and Tools
     model = anthropic_request.get("model", "claude-sonnet-4-20250514")
-    openai_model = MODEL_MAP.get(model, model) # Use provided model if not in map
+    
+    # Robust mapping: If it's a 'claude-' model not in our map, default to our configured OPENAI_MODEL
+    openai_model = MODEL_MAP.get(model)
+    if not openai_model:
+        if model.startswith("claude-"):
+            openai_model = OPENAI_MODEL
+            logger.info(f"Proxy: Mapping unknown Claude model '{model}' to '{openai_model}'")
+        else:
+            openai_model = model
     
     openai_request = {
         "model": openai_model,
@@ -182,17 +190,79 @@ def convert_openai_to_anthropic(openai_response_data: dict) -> dict:
         }
     }
 
+def convert_openai_chunk_to_anthropic(openai_chunk: dict, is_first: bool = False) -> str:
+    """Convert OpenAI stream chunk to Anthropic SSE event string."""
+    choices = openai_chunk.get("choices", [])
+    choice = choices[0] if choices else {}
+    delta = choice.get("delta", {})
+    
+    events = []
+    
+    # 1. Message Start (must be first)
+    if is_first:
+        events.append({
+            "type": "message_start",
+            "message": {
+                "id": openai_chunk.get("id", "proxy_msg"),
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": openai_chunk.get("model", "glm-4"),
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0}
+            }
+        })
+        events.append({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        })
+    
+    # 2. Content Delta
+    content = delta.get("content")
+    if content:
+        events.append({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": content}
+        })
+        
+    # 3. Finish Reason
+    finish_reason = choice.get("finish_reason")
+    if finish_reason:
+        stop_reason = "end_turn"
+        if finish_reason == "tool_calls":
+            stop_reason = "tool_use"
+        elif finish_reason == "length":
+            stop_reason = "max_tokens"
+
+        events.append({"type": "content_block_stop", "index": 0})
+        events.append({
+            "type": "message_delta", 
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": 0}
+        })
+        events.append({"type": "message_stop"})
+
+    if not events:
+        return ""
+    return "".join([f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events])
+    
 async def handle_messages(request):
-    """Handle /v1/messages POST request."""
+    """Handle /v1/messages POST request with Streaming support."""
     try:
         data = await request.json()
         model = data.get("model", "unknown")
-        logger.info(f"Proxy: Incoming request for {model}")
+        is_stream = data.get("stream", False)
+        logger.info(f"Proxy: Incoming {'streaming ' if is_stream else ''}request for {model}")
         
         openai_payload = convert_anthropic_to_openai(data)
-        
-        # Retry with backoff logic
-        max_retries = 3
+        if is_stream:
+            openai_payload["stream"] = True
+            # Standard OpenAI streaming usually doesn't return usage by default
+            # openai_payload["stream_options"] = {"include_usage": True}
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             base = OPENAI_BASE_URL.rstrip("/")
             if not base.endswith("/v1"): base = f"{base}/v1"
@@ -203,37 +273,65 @@ async def handle_messages(request):
                 "Content-Type": "application/json"
             }
             
-            for attempt in range(max_retries):
-                try:
+            if not is_stream:
+                # Non-streaming logic (optimized with retry)
+                for attempt in range(3):
                     resp = await client.post(url, json=openai_payload, headers=headers)
-                    
                     if resp.status_code == 429:
-                        wait = 2 ** attempt
-                        logger.warning(f"Rate limited (429), retrying in {wait}s...")
-                        await asyncio.sleep(wait)
-                        continue
-                    
+                        await asyncio.sleep(2 ** attempt); continue
                     if resp.status_code != 200:
-                        logger.error(f"Upstream error {resp.status_code}: {resp.text[:500]}")
-                        return web.json_response({
-                            "error": {"type": "api_error", "message": f"Upstream error: {resp.status_code}"}
-                        }, status=resp.status_code)
+                        logger.error(f"Upstream error {resp.status_code}: {resp.text[:200]}")
+                        return web.json_response({"error": {"message": f"Upstream error: {resp.status_code}"}}, status=resp.status_code)
                     
-                    openai_resp = resp.json()
-                    anthropic_resp = convert_openai_to_anthropic(openai_resp)
-                    return web.json_response(anthropic_resp)
-                    
-                except Exception as e:
-                    logger.error(f"Request failed: {e}")
-                    if attempt == max_retries - 1: raise
-                    await asyncio.sleep(1)
+                    return web.json_response(convert_openai_to_anthropic(resp.json()))
+            else:
+                # Streaming logic
+                response = web.StreamResponse(status=200, reason='OK', headers={'Content-Type': 'text/event-stream'})
+                await response.prepare(request)
+                
+                import time
+                start_time = time.time()
+                async with client.stream("POST", url, json=openai_payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        err_body = await resp.aread()
+                        logger.error(f"Upstream Stream Error {resp.status_code}: {err_body[:200]}")
+                        await response.write(f"event: error\ndata: {json.dumps({'message': 'Upstream stream error'})}\n\n".encode())
+                        await response.drain()
+                        return response
+
+                    is_first = True
+                    # Use a custom line parser to avoid buffering in aiter_lines
+                    buffer = ""
+                    async for chunk_bytes in resp.aiter_bytes():
+                        buffer += chunk_bytes.decode("utf-8", errors="ignore")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            if not line or not line.startswith("data: "): continue
+                            if line == "data: [DONE]": break
+                            
+                            try:
+                                if is_first:
+                                    logger.info(f"Proxy: First chunk received from {model} after {time.time()-start_time:.2f}s")
+                                
+                                chunk_data = json.loads(line[6:])
+                                anthropic_sse = convert_openai_chunk_to_anthropic(chunk_data, is_first)
+                                if anthropic_sse:
+                                    try:
+                                        await response.write(anthropic_sse.encode())
+                                        await response.drain()
+                                        is_first = False
+                                    except (RuntimeError, ConnectionResetError):
+                                        break
+                            except Exception as e:
+                                logger.error(f"Error parsing chunk: {e}")
+                            
+                return response
 
     except Exception as e:
         logger.error(f"Internal Proxy Error: {e}", exc_info=True)
-        return web.json_response({
-            "error": {"type": "proxy_error", "message": str(e)}
-        }, status=500)
-
+        return web.json_response({"error": {"message": str(e)}}, status=500)
+    
 async def handle_health(request):
     return web.json_response({"status": "ok"})
 

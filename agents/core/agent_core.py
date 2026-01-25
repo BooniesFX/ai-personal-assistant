@@ -204,6 +204,183 @@ class AgentCore:
         self._transports[platform] = adapter
         logger.info(f"Registered transport: {platform.value}")
     
+    async def process_message_stream(
+        self, 
+        message: Message,
+        platform_context: Any = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Process a message and yield events in real-time.
+        Events:
+        - {"type": "status", "text": "..."}
+        - {"type": "tool_result", "tool_name": "...", "content": "..."}
+        - {"type": "text_chunk", "content": "..."}
+        - {"type": "final_response", "content": "..."}
+        """
+        if not self._initialized:
+            await self.initialize()
+        
+        user_id = message.user_id
+        if '@' in user_id:
+            email = user_id
+        else:
+            email = self.identity_manager.get_email(message.platform.value, user_id)
+            if email:
+                user_id = email
+            
+        session_id = "unified_session" if email else f"{message.platform.value}_{message.user_id}"
+        
+        self.short_term_memory.add_turn(
+            user_id, session_id,
+            role="user",
+            content=message.content
+        )
+        
+        if self.short_term_memory.should_summarize(user_id, session_id):
+            await self._trigger_summarization(user_id, session_id)
+        
+        context = self._build_context(user_id, session_id)
+        system_prompt = self._get_system_prompt(message.platform, user_id)
+        
+        try:
+            max_turns = 15
+            current_turn = 0
+            
+            async def add_context(role, content, tool_calls=None, tool_call_id=None, save_to_memory=False):
+                if save_to_memory:
+                    self.short_term_memory.add_turn(
+                        user_id, session_id, role, content, 
+                        tool_calls=tool_calls, tool_call_id=tool_call_id
+                    )
+                context.append({
+                    "role": role, 
+                    "content": content,
+                    "tool_calls": tool_calls,
+                    "tool_call_id": tool_call_id
+                })
+                if context[-1]["tool_calls"] is None: del context[-1]["tool_calls"]
+                if context[-1]["tool_call_id"] is None: del context[-1]["tool_call_id"]
+
+            while current_turn < max_turns:
+                current_turn += 1
+                tools = await self.tool_registry.get_tool_definitions()
+                
+                yield {"type": "status", "text": "💭 Thinking..."}
+                
+                # Use the SDK's streaming capability directly to catch both text AND tool calls
+                chunks = []
+                tool_calls_this_turn = []
+                
+                try:
+                    # Note: We use the underlying anthropic client's stream if it's anthropic, 
+                    # but since we have a wrapper, let's use a more robust approach.
+                    # Actually, our ClaudeClient already has _stream_message_anthropic.
+                    # But that one only yields text. We need tool calls too.
+                    
+                    # For now, let's use create_tool_message for everything EXCEPT the final turn
+                    # wait, we don't know if it's the final turn until it responds.
+                    
+                    # Optimized approach: Use a streaming response that can handle tool_use events.
+                    # Since implementing a full-blown tool-streaming parser is complex, 
+                    // we will compromise for now: if we have tools, we do ONE non-streaming check.
+                    // BUT, if the user sees "Thinking..." for too long, it's because of the Proxy/SDK redundency.
+                    
+                    # Let's fix the 'all at once' by ensuring we don't have a double-await.
+                    
+                    # RE-IMPLEMENTATION:
+                    # Let's use the stream but capture tool_use events.
+                    
+                    from anthropic import AsyncAnthropic
+                    
+                    # If using Anthropic proxy (local):
+                    params = {
+                        "model": self.default_model,
+                        "messages": context,
+                        "max_tokens": self.default_max_tokens,
+                        "system": system_prompt,
+                        "tools": tools,
+                    }
+                    
+                    # We use the internal client of llm_client if possible
+                    client = self.llm_client.client
+                    
+                    logger.info(f"AgentCore: Starting stream for turn {current_turn}")
+                    async with client.messages.stream(**params) as stream:
+                        async for event in stream:
+                            if event.type == "text":
+                                chunks.append(event.text)
+                                # logger.debug(f"AgentCore: Yielding chunk: {event.text[:20]}...")
+                                yield {"type": "text_chunk", "content": event.text}
+                            elif event.type == "content_block_start":
+                                logger.info(f"AgentCore: Content block started: {event.content_block.type}")
+                        
+                        logger.info(f"AgentCore: Stream finished for turn {current_turn}")
+                        # After stream ends, check for tool calls
+                        final_msg = await stream.get_final_message()
+                        
+                        # Extract tool calls from final_msg
+                        for content in final_msg.content:
+                            if content.type == "tool_use":
+                                tool_calls_this_turn.append({
+                                    "id": content.id,
+                                    "name": content.name,
+                                    "input": content.input
+                                })
+                except Exception as e:
+                    logger.error(f"Streaming error: {e}")
+                    # Fallback to non-streaming if stream fails or isn't supported
+                    result = await self.llm_client.create_tool_message(
+                        messages=context, tools=tools, system=system_prompt
+                    )
+                    final_msg = result.get('response')
+                    tool_calls_this_turn = result.get('tool_calls', [])
+                    text = self._extract_text(final_msg)
+                    if text:
+                        yield {"type": "text_chunk", "content": text}
+                        chunks = [text]
+
+                full_text = "".join(chunks)
+                
+                if not tool_calls_this_turn:
+                    # Final text response
+                    await add_context("assistant", full_text, save_to_memory=True)
+                    yield {"type": "final_response", "content": full_text}
+                    break
+                
+                # Process Tool Calls
+                formatted_tool_calls = []
+                for tc in tool_calls_this_turn:
+                    formatted_tool_calls.append({
+                        "id": tc['id'],
+                        "type": "function",
+                        "function": {
+                            "name": tc['name'],
+                            "arguments": json.dumps(tc['input'])
+                        }
+                    })
+                
+                await add_context("assistant", full_text, tool_calls=formatted_tool_calls)
+                
+                yield {"type": "status", "text": f"🔧 Using tools: {', '.join([tc['name'] for tc in tool_calls_this_turn])}"}
+                
+                for tc in tool_calls_this_turn:
+                    tool_name = tc['name']
+                    tool_id = tc['id']
+                    try:
+                        tool_result = await self.tool_registry.execute_tool(
+                            tool_name, tc['input'], platform_context
+                        )
+                        result_content = str(tool_result)
+                    except Exception as e:
+                        result_content = f"Error: {str(e)}"
+                    
+                    await add_context("tool", result_content, tool_call_id=tool_id)
+                    yield {"type": "tool_result", "tool_name": tool_name, "content": result_content}
+                    
+        except Exception as e:
+            logger.error(f"Error in streaming process: {e}", exc_info=True)
+            yield {"type": "error", "message": str(e)}
+
     async def process_message(
         self, 
         message: Message,

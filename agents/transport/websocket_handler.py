@@ -27,6 +27,7 @@ class MessageType(str, Enum):
     
     # Server -> Client
     MESSAGE_ADDED = "message_added"
+    MESSAGE_CHUNK = "message_chunk"
     MESSAGES_UPDATED = "messages_updated"
     SESSION_STATE_CHANGED = "session_state_changed"
     ERROR = "error"
@@ -40,6 +41,7 @@ class WebSocketClient:
     session_id: Optional[str] = None
     telegram_id: Optional[str] = None
     bound_identity: Optional[str] = None  # Validated Email/User ID
+    current_message_id: Optional[str] = None # For tracking stream context
 
 
 class WebSocketHandler:
@@ -49,6 +51,7 @@ class WebSocketHandler:
     Protocol:
     - Client sends: {"type": "chat", "content": "...", "attachments": [...]}
     - Server sends: {"type": "message_added", "message": {...}}
+    - Server sends: {"type": "message_chunk", "content": "..."}
     """
     
     def __init__(self, agent_core):
@@ -163,7 +166,7 @@ class WebSocketHandler:
         # TODO: Ideally push history here
     
     async def _handle_chat(self, client_id: int, client: WebSocketClient, data: dict):
-        """Handle chat message using AgentCore."""
+        """Handle chat message using AgentCore streaming."""
         from agents.core.agent_core import Message, Platform
         
         content = data.get("content", "").strip()
@@ -173,33 +176,6 @@ class WebSocketHandler:
         
         user_id = client.bound_identity or client.telegram_id or f"web_{client_id}"
         
-        async def status_callback(status: Any):
-            """Push status update or tool result to client."""
-            if client.websocket.closed:
-                return
-
-            if isinstance(status, dict) and status.get("type") == "tool_result":
-                await self._send(client.websocket, {
-                    "type": MessageType.MESSAGE_ADDED,
-                    "message": {
-                        "role": "tool",
-                        "content": status["content"],
-                        "tool_name": status["tool_name"]
-                    }
-                })
-                return
-
-            status_str = str(status)
-            state = "thinking"
-            if "tool" in status_str.lower() or "executing" in status_str.lower() or "status" in status_str.lower():
-                state = "tool_use"
-            
-            await self._send(client.websocket, {
-                "type": MessageType.SESSION_STATE_CHANGED,
-                "state": state,
-                "status_text": status_str
-            })
-
         async def run_process():
             try:
                 message = Message(
@@ -208,34 +184,59 @@ class WebSocketHandler:
                     content=content
                 )
                 
-                response = await self.agent_core.process_message(
+                # Use stream processing
+                async for event in self.agent_core.process_message_stream(
                     message,
-                    platform_context=client,
-                    status_callback=status_callback
-                )
-                
-                if not client.websocket.closed:
-                    await self._send(client.websocket, {
-                        "type": MessageType.MESSAGE_ADDED,
-                        "message": {
-                            "role": "assistant",
-                            "content": response.content
-                        }
-                    })
-                    await self._send(client.websocket, {
-                        "type": MessageType.SESSION_STATE_CHANGED,
-                        "state": "idle"
-                    })
+                    platform_context=client
+                ):
+                    if client.websocket.closed:
+                        break
+                        
+                    e_type = event.get("type")
+                    
+                    if e_type == "status":
+                        status_str = event.get("text", "")
+                        state = "tool_use" if ("tool" in status_str.lower() or "executing" in status_str.lower()) else "thinking"
+                        await self._send(client.websocket, {
+                            "type": MessageType.SESSION_STATE_CHANGED,
+                            "state": state,
+                            "status_text": status_str
+                        })
+                        
+                    elif e_type == "tool_result":
+                        await self._send(client.websocket, {
+                            "type": MessageType.MESSAGE_ADDED,
+                            "message": {
+                                "role": "tool",
+                                "content": event["content"],
+                                "tool_name": event["tool_name"]
+                            }
+                        })
+                        
+                    elif e_type == "text_chunk":
+                        # logger.debug(f"WS: Sending chunk to client {client_id}")
+                        await self._send(client.websocket, {
+                            "type": MessageType.MESSAGE_CHUNK,
+                            "content": event["content"]
+                        })
+                        
+                    elif e_type == "final_response":
+                        # We don't necessarily need a whole new message if we used chunks,
+                        # but we send 'idle' to signal completion.
+                        await self._send(client.websocket, {
+                            "type": MessageType.SESSION_STATE_CHANGED,
+                            "state": "idle"
+                        })
+                        
+                    elif e_type == "error":
+                        await self._send_error(client.websocket, event["message"])
+
             except asyncio.CancelledError:
                 logger.info(f"Task for client {client_id} was explicitly cancelled")
             except Exception as e:
-                logger.error(f"Error processing chat: {e}")
+                logger.error(f"Error processing chat: {e}", exc_info=True)
                 if not client.websocket.closed:
                     await self._send_error(client.websocket, str(e))
-                    await self._send(client.websocket, {
-                        "type": MessageType.SESSION_STATE_CHANGED,
-                        "state": "error"
-                    })
             finally:
                 if client_id in getattr(self, 'running_tasks', {}):
                     del self.running_tasks[client_id]
