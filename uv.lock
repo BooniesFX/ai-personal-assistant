@@ -7,6 +7,53 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "ai-personal-assistant"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "aiohttp" },
+    { name = "aiohttp-sse" },
+    { name = "anthropic" },
+    { name = "claude-agent-sdk" },
+    { name = "fastapi" },
+    { name = "gradio" },
+    { name = "httpx" },
+    { name = "itchat-uos" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "python-telegram-bot" },
+    { name = "requests" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiofiles", specifier = ">=23.2.0" },
+    { name = "aiohttp", specifier = ">=3.9.0" },
+    { name = "aiohttp-sse", specifier = ">=2.2.0" },
+    { name = "anthropic", specifier = ">=0.28.0" },
+    { name = "claude-agent-sdk", specifier = ">=0.1.19" },
+    { name = "fastapi", specifier = ">=0.122.0" },
+    { name = "gradio", specifier = ">=6.0.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "itchat-uos", specifier = ">=1.4.1" },
+    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "openai", specifier = ">=1.0.0" },
+    { name = "pillow", specifier = ">=12.0.0" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "python-multipart", specifier = ">=0.0.6" },
+    { name = "python-telegram-bot", specifier = ">=22.5" },
+    { name = "requests", specifier = ">=2.32.5" },
+    { name = "uvicorn", specifier = ">=0.38.0" },
+]
+
+[[package]]
 name = "aiofiles"
 version = "24.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2153,51 +2200,4 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/86/0f0dccb6e59a9e7f122c5afd43568b1d31b8ab7dda5f1b01fb5c7025c9a9/yarl-1.22.0-cp314-cp314t-win_amd64.whl", hash = "sha256:9fb17ea16e972c63d25d4a97f016d235c78dd2344820eb35bc034bc32012ee27", size = 96292, upload-time = "2025-10-06T14:12:15.398Z" },
     { url = "https://files.pythonhosted.org/packages/48/b7/503c98092fb3b344a179579f55814b613c1fbb1c23b3ec14a7b008a66a6e/yarl-1.22.0-cp314-cp314t-win_arm64.whl", hash = "sha256:9f6d73c1436b934e3f01df1e1b21ff765cd1d28c77dfb9ace207f746d4610ee1", size = 85171, upload-time = "2025-10-06T14:12:16.935Z" },
     { url = "https://files.pythonhosted.org/packages/73/ae/b48f95715333080afb75a4504487cbe142cae1268afc482d06692d605ae6/yarl-1.22.0-py3-none-any.whl", hash = "sha256:1380560bdba02b6b6c90de54133c81c9f2a453dee9912fe58c1dcced1edb7cff", size = 46814, upload-time = "2025-10-06T14:12:53.872Z" },
-]
-
-[[package]]
-name = "z-image-ui"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiofiles" },
-    { name = "aiohttp" },
-    { name = "aiohttp-sse" },
-    { name = "anthropic" },
-    { name = "claude-agent-sdk" },
-    { name = "fastapi" },
-    { name = "gradio" },
-    { name = "httpx" },
-    { name = "itchat-uos" },
-    { name = "mcp" },
-    { name = "openai" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "python-telegram-bot" },
-    { name = "requests" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiofiles", specifier = ">=23.2.0" },
-    { name = "aiohttp", specifier = ">=3.9.0" },
-    { name = "aiohttp-sse", specifier = ">=2.2.0" },
-    { name = "anthropic", specifier = ">=0.28.0" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.19" },
-    { name = "fastapi", specifier = ">=0.122.0" },
-    { name = "gradio", specifier = ">=6.0.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "itchat-uos", specifier = ">=1.4.1" },
-    { name = "mcp", specifier = ">=1.0.0" },
-    { name = "openai", specifier = ">=1.0.0" },
-    { name = "pillow", specifier = ">=12.0.0" },
-    { name = "pydantic", specifier = ">=2.5.0" },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "python-multipart", specifier = ">=0.0.6" },
-    { name = "python-telegram-bot", specifier = ">=22.5" },
-    { name = "requests", specifier = ">=2.32.5" },
-    { name = "uvicorn", specifier = ">=0.38.0" },
 ]
