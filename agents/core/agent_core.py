@@ -281,9 +281,9 @@ class AgentCore:
                     # wait, we don't know if it's the final turn until it responds.
                     
                     # Optimized approach: Use a streaming response that can handle tool_use events.
-                    # Since implementing a full-blown tool-streaming parser is complex, 
-                    // we will compromise for now: if we have tools, we do ONE non-streaming check.
-                    // BUT, if the user sees "Thinking..." for too long, it's because of the Proxy/SDK redundency.
+                    # Since implementing a full-blown tool-streaming parser is complex,
+                    # we will compromise for now: if we have tools, we do ONE non-streaming check.
+                    # BUT, if the user sees "Thinking..." for too long, it's because of the Proxy/SDK redundency.
                     
                     # Let's fix the 'all at once' by ensuring we don't have a double-await.
                     
