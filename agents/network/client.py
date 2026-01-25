@@ -1,7 +1,7 @@
 import httpx
 import logging
 import json
-from typing import Dict, Any, Optional, AsyncIterator
+from typing import Dict, Any, Optional, AsyncIterator, Union
 from .models import (
     AgentMetadata,
     A2AMessage,
